@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1a12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>HerdGuard</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  [hidden]{display:none!important}
+  html,body{margin:0;height:100%;overflow:hidden;background:#0a140e;color:#f1f7f3;
+    font:14px/1.3 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+  #map{position:absolute;inset:0}
+  .leaflet-control-attribution{display:none}
+
+  /* translucent green panels */
+  .glass{background:rgba(10,20,15,.72);border:1px solid rgba(255,255,255,.08);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+
+  /* ---------- top buttons ---------- */
+  #top{position:absolute;top:0;left:0;right:0;z-index:500;display:flex;gap:8px;align-items:center;justify-content:flex-end;
+    padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 0}
+  .ic{width:44px;height:44px;flex:none;border-radius:50%;cursor:pointer;color:#f1f7f3;display:flex;align-items:center;justify-content:center;
+    background:rgba(10,20,15,.72);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+    transition:transform .15s,background .2s,color .2s}
+  .ic svg{width:20px;height:20px}
+  .ic.on{background:#8fb173;color:#0a1a0f;border-color:transparent}
+  .ic.warn{color:#fda4af}
+
+  /* ---------- crosshair ---------- */
+  #cross{position:absolute;left:50%;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;pointer-events:none;z-index:400;
+    border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  #cross::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:#fff}
+
+  /* ---------- markers ---------- */
+  .pt{background:none;border:0}
+  .pt span{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;
+    background:#8fb173;color:#0a1a0f;font:800 12px/1 -apple-system,sans-serif;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+  .pt.drop span{animation:drop .5s cubic-bezier(.3,1.4,.5,1)}
+  .pt.sel span{background:#e4eed8;border-color:#8fb173;box-shadow:0 0 0 4px rgba(143,177,115,.45),0 3px 8px rgba(0,0,0,.5)}
+  #pointBar{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 84px);z-index:650;
+    display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:16px}
+  #pointBar span{flex:1;font-weight:700;font-size:14px}
+  #pointBar .mini{height:38px;padding:0 14px}
+  .lbl{background:none;border:0}
+  .lbl span{display:block;text-align:center;color:#fff;font:800 15px/22px -apple-system,sans-serif;text-shadow:0 1px 4px #000}
+  .me{width:22px;height:22px;border-radius:50%;background:#38bdf8;border:3px solid #fff}
+
+  /* ---------- bottom bar ---------- */
+  #bar{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);z-index:500;height:62px;
+    display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:6px;border-radius:20px}
+  #bar button{border:0;border-radius:14px;background:none;color:#cfe0d5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    font-size:11px;font-weight:600;cursor:pointer;transition:transform .15s,background .2s}
+  #bar svg{width:20px;height:20px}
+  #bar button.go{background:#8fb173;color:#0a1a0f}
+
+  /* ---------- sheets (slide only, no fade) ---------- */
+  .sheet{position:absolute;left:10px;right:10px;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);z-index:600;
+    max-height:58vh;overflow-y:auto;border-radius:20px;padding:14px;
+    transform:translateY(calc(100% + 120px));visibility:hidden;pointer-events:none;
+    transition:transform .3s ease,visibility 0s linear .3s}
+  .sheet.open{transform:none;visibility:visible;pointer-events:auto;transition:transform .3s ease,visibility 0s}
+  .title{font-weight:700;font-size:17px;margin:0 0 6px}
+  .info{color:#9fb5a7;font-size:13px;margin:0 0 10px}
+  .info b{color:#f1f7f3;font-weight:700}
+  .sub{color:#9fb5a7;font-size:12px;margin:8px 0 0;text-align:center}
+  .btn{display:block;width:100%;height:46px;border:0;border-radius:12px;margin-top:8px;font:700 15px -apple-system,sans-serif;
+    background:rgba(255,255,255,.1);color:#f1f7f3;cursor:pointer;transition:transform .15s,background .2s}
+  .btn.go{background:#8fb173;color:#0a1a0f}
+  .btn:disabled{opacity:.6}
+  .row{display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+  .row .nm{flex:1;min-width:0}
+  .row .nm b{display:block;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row small{color:#9fb5a7;font-size:12px}
+  .mini{height:34px;padding:0 11px;border-radius:10px;border:0;background:rgba(255,255,255,.1);color:#f1f7f3;font:700 13px -apple-system,sans-serif;cursor:pointer;transition:transform .15s}
+  .mini.go{background:#8fb173;color:#0a1a0f}
+  .mini.del{color:#fda4af}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:rgba(255,255,255,.06);border-radius:12px;padding:4px;margin-bottom:10px}
+  .seg button{height:38px;border:0;border-radius:9px;background:none;color:#9fb5a7;font:700 13px -apple-system,sans-serif;cursor:pointer}
+  .seg button.on{background:#8fb173;color:#0a1a0f}
+  .stepper{display:flex;align-items:center;justify-content:center;gap:12px;margin:6px 0}
+  .stepper button{width:52px;height:52px;border:0;border-radius:14px;background:rgba(255,255,255,.1);color:#f1f7f3;font-size:24px;font-weight:700;cursor:pointer}
+  .stepper input{width:96px;height:52px;border:0;border-radius:14px;background:rgba(255,255,255,.06);color:#f1f7f3;font:800 22px -apple-system,sans-serif;text-align:center}
+  .masterbox{border:1px dashed rgba(166,217,94,.5);border-radius:14px;padding:11px;margin-bottom:10px}
+  .nameIn{width:100%;height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#f1f7f3;padding:0 14px;font:600 15px -apple-system,sans-serif;margin-top:8px;outline:none}
+  .nameIn:focus{border-color:#8fb173}
+  .ren{display:flex;gap:8px;align-items:center;width:100%}
+  .ren input{flex:1;min-width:0;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#f1f7f3;padding:0 10px;font:600 14px -apple-system,sans-serif;outline:none}
+  .padIn{display:block;width:100%;height:42px;border-radius:11px;border:1px solid rgba(255,255,255,.1);border-left-width:5px;background:rgba(255,255,255,.06);color:#f1f7f3;padding:0 12px;font:600 14px -apple-system,sans-serif;margin:6px 0 0;outline:none}
+  #padNames{max-height:30vh;overflow-y:auto}
+  .sheet button:active,#bar button:active,.ic:active,.mini:active,.stepper button:active{transform:scale(.94)}
+
+  /* ---------- toast (no fade) ---------- */
+  #toast{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 86px);z-index:700;
+    background:rgba(10,20,15,.8);border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;
+    white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis;display:none;pointer-events:none}
+  #toast.show{display:block}
+
+  @keyframes drop{0%{transform:translateY(-22px)}60%{transform:translateY(3px)}100%{transform:none}}
+  @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="cross"></div>
+
+<div id="top">
+  <div class="spacer"></div>
+  <button class="ic" id="b-tap" aria-label="Tap map to add points"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></button>
+  <button class="ic warn" id="b-del" aria-label="Delete figure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+  <button class="ic" id="b-saved" aria-label="Saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
+  <button class="ic" id="locate" aria-label="My location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+</div>
+
+<div id="bar" class="glass">
+  <button id="b-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Point</button>
+  <button id="b-gps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>GPS</button>
+  <button id="b-undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Undo</button>
+  <button id="b-split"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M12 4v16M4 12h16" opacity="0.6"/></svg>Split</button>
+  <button id="b-send" class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>Send</button>
+</div>
+
+<div id="sheetSend" class="sheet glass">
+  <div class="title">Send to collar</div>
+  <p class="info" id="sendInfo"></p>
+  <button class="btn go" id="btn-send">Send this figure</button>
+  <button class="btn" id="btn-copy">Copy points</button>
+  <button class="btn" id="btn-close1">Close</button>
+  <p class="sub">Phone must be on the collar's HerdGuard_ Wi-Fi.</p>
+</div>
+
+<div id="sheetSplit" class="sheet glass">
+  <div class="title">Paddocks</div>
+  <div class="seg" id="seg">
+    <button id="seg-master" data-src="master">Master land</button>
+    <button id="seg-figure" data-src="figure">This figure</button>
+  </div>
+  <p class="info" id="splitSrcInfo"></p>
+  <div class="stepper">
+    <button id="n-minus" aria-label="Fewer">−</button>
+    <input id="n-count" type="number" min="2" max="12" value="4" inputmode="numeric">
+    <button id="n-plus" aria-label="More">+</button>
+  </div>
+  <button class="btn go" id="btn-make">Make paddocks</button>
+  <p class="info" id="splitInfo" style="margin-top:10px"></p>
+  <div id="padNames"></div>
+  <button class="btn" id="btn-saveall" hidden>Save all paddocks</button>
+  <button class="btn" id="btn-close2">Close</button>
+</div>
+
+<div id="sheetSaved" class="sheet glass">
+  <div class="title">Saved</div>
+  <div id="masterBox"></div>
+  <input class="nameIn" id="nameIn" maxlength="60" placeholder="Name this figure">
+  <button class="btn go" id="btn-save">Save this figure</button>
+  <div id="savedList"></div>
+  <button class="btn" id="btn-offline">Save map for offline</button>
+  <p class="sub" id="offlineInfo">Maps you view are kept on this phone too.</p>
+  <button class="btn" id="btn-close3">Close</button>
+</div>
+
+<div id="pointBar" class="glass" hidden>
+  <span id="pointLbl"></span>
+  <button class="mini del" id="pt-del">Delete point</button>
+  <button class="mini" id="pt-cancel">Cancel</button>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+  var K_WORK = 'herdguard.work', K_OLD = 'herdguard.points', K_SAVED = 'herdguard.saved',
+      K_MASTER = 'herdguard.master', K_TAP = 'herdguard.tap';
+  var MAX = 20, MIN = 3;
+  var TILE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  var COLORS = ['#8fb173', '#38bdf8', '#fbbf24', '#f472b6', '#c084fc', '#34d399', '#fb923c', '#60a5fa', '#f87171', '#facc15', '#2dd4bf', '#e879f9'];
+
+  function load(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
+  function store(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  function $(id) { return document.getElementById(id); }
+
+  // W = the figure on the map: { pts, name, dirty }
+  var W = load(K_WORK, null);
+  if (!W) { var old = load(K_OLD, []); W = { pts: Array.isArray(old) ? old : [], name: '', dirty: false }; }
+  var saved = load(K_SAVED, []);
+  var master = load(K_MASTER, null);     // { name, pts } = the whole grazing land
+  var tapOn = load(K_TAP, true);
+  var preview = null;                    // paddocks on the map, or null
+  var fresh = -1;
+  var tapT = null;
+  var splitSrc = master ? 'master' : 'figure';
+
+  var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([-0.3976, 36.9612], 18);
+  L.tileLayer(TILE, { maxZoom: 19 }).addTo(map);
+  var shapes = L.layerGroup().addTo(map);
+  var meLayer = L.layerGroup().addTo(map);
+
+  function persistWork() { store(K_WORK, W); }
+  function persistSaved() { store(K_SAVED, saved); }
+  function persistMaster() { store(K_MASTER, master); }
+  function vib(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2400);
+  }
+  function round6(x) { return Math.round(x * 1e6) / 1e6; }
+  function uid() { return Date.now().toString(36) + Math.floor(Math.random() * 1000); }
+
+  // ---------- geometry ----------
+  function projection(lat0, lng0) {
+    var k = 6371000 * Math.PI / 180, cl = Math.cos(lat0 * Math.PI / 180);
+    return {
+      fwd: function (p) { return [(p[1] - lng0) * k * cl, (p[0] - lat0) * k]; },
+      inv: function (q) { return [round6(lat0 + q[1] / k), round6(lng0 + q[0] / (k * cl))]; }
+    };
+  }
+  function area(poly) {
+    var a = 0;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) a += poly[j][0] * poly[i][1] - poly[i][0] * poly[j][1];
+    return Math.abs(a) / 2;
+  }
+  function hectares(poly) {
+    if (poly.length < 3) return 0;
+    var c = centroid(poly), P = projection(c[0], c[1]);
+    return area(poly.map(P.fwd)) / 10000;
+  }
+  function centroid(poly) {
+    var la = 0, lo = 0;
+    poly.forEach(function (p) { la += p[0]; lo += p[1]; });
+    return [la / poly.length, lo / poly.length];
+  }
+  function crosses(a, b, c, d) {
+    function s(p, q, r) { return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]); }
+    return (s(a, b, c) * s(a, b, d) < 0) && (s(c, d, a) * s(c, d, b) < 0);
+  }
+  function selfCrossing(poly) {
+    var n = poly.length;
+    for (var i = 0; i < n; i++)
+      for (var k = i + 2; k < n; k++) {
+        if (i === 0 && k === n - 1) continue;
+        if (crosses(poly[i], poly[(i + 1) % n], poly[k], poly[(k + 1) % n])) return true;
+      }
+    return false;
+  }
+  // max = the most corners allowed (20 for a collar, no limit for the master land)
+  function problem(poly, max) {
+    if (poly.length < MIN) return 'Need at least ' + MIN + ' points';
+    if (max && poly.length > max) return 'Max ' + max + ' points';
+    if (selfCrossing(poly)) return 'Lines cross. Move a point.';
+    return '';
+  }
+  function simplify(poly, max) {
+    var p = poly.slice();
+    while (p.length > max) {
+      var best = 0, bestA = Infinity;
+      for (var i = 0; i < p.length; i++) {
+        var a = p[(i + p.length - 1) % p.length], b = p[i], c = p[(i + 1) % p.length];
+        var t = Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]));
+        if (t < bestA) { bestA = t; best = i; }
+      }
+      p.splice(best, 1);
+    }
+    return p;
+  }
+  function clip(poly, d, t, keepLow) {
+    var out = [], n = poly.length;
+    function f(p) { var v = p[0] * d[0] + p[1] * d[1] - t; return keepLow ? v : -v; }
+    for (var i = 0; i < n; i++) {
+      var a = poly[i], b = poly[(i + 1) % n], fa = f(a), fb = f(b);
+      if (fa <= 0) out.push(a);
+      if ((fa < 0 && fb > 0) || (fa > 0 && fb < 0)) {
+        var r = fa / (fa - fb);
+        out.push([a[0] + (b[0] - a[0]) * r, a[1] + (b[1] - a[1]) * r]);
+      }
+    }
+    return out;
+  }
+  function split(poly, n) {
+    var mx = 0, my = 0;
+    poly.forEach(function (p) { mx += p[0]; my += p[1]; });
+    mx /= poly.length; my /= poly.length;
+    var sxx = 0, syy = 0, sxy = 0;
+    poly.forEach(function (p) { var dx = p[0] - mx, dy = p[1] - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; });
+    var th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    var d = [Math.cos(th), Math.sin(th)];
+    var pieces = [], rest = poly;
+    for (var k = 0; k < n - 1; k++) {
+      var target = area(rest) / (n - k);
+      var lo = Infinity, hi = -Infinity;
+      rest.forEach(function (p) { var v = p[0] * d[0] + p[1] * d[1]; if (v < lo) lo = v; if (v > hi) hi = v; });
+      var a = lo, b = hi;
+      for (var it = 0; it < 60; it++) {
+        var m = (a + b) / 2;
+        if (area(clip(rest, d, m, true)) < target) a = m; else b = m;
+      }
+      var cut = (a + b) / 2;
+      pieces.push(clip(rest, d, cut, true));
+      rest = clip(rest, d, cut, false);
+    }
+    pieces.push(rest);
+    return pieces;
+  }
+
+  // ---------- drawing ----------
+  var figLayer = null;
+  var selPt = -1;     // index of the point the user tapped, or -1
+  function render() {
+    shapes.clearLayers();
+    figLayer = null;
+    if (master && !preview) {
+      L.polygon(master.pts, { color: '#d9f99d', weight: 2, dashArray: '7 7', fill: false, interactive: false }).addTo(shapes);
+    }
+    if (preview) {
+      preview.forEach(function (q, i) {
+        var col = COLORS[i % COLORS.length];
+        L.polygon(q, { color: col, weight: 2, fillColor: col, fillOpacity: 0.3, interactive: false }).addTo(shapes);
+        L.marker(centroid(q), { interactive: false, icon: L.divIcon({ className: 'lbl', html: '<span>' + (i + 1) + '</span>', iconSize: [26, 22], iconAnchor: [13, 11] }) }).addTo(shapes);
+      });
+      return;
+    }
+    var pts = W.pts;
+    if (pts.length >= 3) figLayer = L.polygon(pts, { color: '#8fb173', weight: 2.5, fillColor: '#8fb173', fillOpacity: 0.2, interactive: false }).addTo(shapes);
+    else if (pts.length === 2) figLayer = L.polyline(pts, { color: '#8fb173', weight: 2.5, interactive: false }).addTo(shapes);
+    pts.forEach(function (p, i) {
+      L.marker(p, {
+        draggable: true,
+        icon: L.divIcon({ className: 'pt' + (i === fresh ? ' drop' : '') + (i === selPt ? ' sel' : ''), html: '<span>' + (i + 1) + '</span>', iconSize: [26, 26], iconAnchor: [13, 13] })
+      }).on('click', function () {
+        selectPoint(i);
+      }).on('drag', function (ev) {
+        // the outline follows the finger; a move that would cross itself is held at the last safe spot
+        var ll = ev.target.getLatLng();
+        var cand = W.pts.slice(); cand[i] = [ll.lat, ll.lng];
+        if (cand.length >= 4 && selfCrossing(cand)) {
+          ev.target.setLatLng(W.pts[i]);
+          var now = Date.now();
+          if (!drag.warnAt || now - drag.warnAt > 1500) { drag.warnAt = now; toast('Lines cannot cross'); }
+          return;
+        }
+        W.pts[i] = [ll.lat, ll.lng];
+        if (figLayer) figLayer.setLatLngs(W.pts);
+      }).on('dragend', function () {
+        W.pts[i] = [round6(W.pts[i][0]), round6(W.pts[i][1])];
+        W.dirty = true; persistWork(); render();
+      }).addTo(shapes);
+    });
+    fresh = -1;
+  }
+
+  var drag = { warnAt: 0 };
+  function changed() { preview = null; W.dirty = true; persistWork(); render(); }
+
+  function addPoint(lat, lng) {
+    if (W.pts.length >= MAX) return toast('Max ' + MAX + ' points');
+    var cand = W.pts.concat([[round6(lat), round6(lng)]]);
+    if (cand.length >= 4 && selfCrossing(cand)) return toast('That point would cross the outline');
+    W.pts.push([round6(lat), round6(lng)]);
+    fresh = W.pts.length - 1;
+    vib(15);
+    changed();
+  }
+
+  function anySheetOpen() {
+    return ['sheetSend', 'sheetSplit', 'sheetSaved'].some(function (s) { return $(s).classList.contains('open'); });
+  }
+  function showSheet(id) {
+    ['sheetSend', 'sheetSplit', 'sheetSaved'].forEach(function (s) { $(s).classList.toggle('open', s === id); });
+  }
+  function closeSheets() { showSheet(null); }
+
+  function text(poly) {
+    return poly.map(function (p) { return '{' + p[0].toFixed(6) + ', ' + p[1].toFixed(6) + '},'; }).join('\n');
+  }
+
+  // ---------- master land + saved ----------
+  function renderMaster() {
+    var box = $('masterBox');
+    box.innerHTML = '';
+    var wrap = document.createElement('div');
+    if (master) {
+      wrap.className = 'masterbox';
+      wrap.innerHTML = '<b></b><div class="info" style="margin:4px 0 8px"></div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="mini go" data-m="show">Show</button>' +
+        '<button class="mini" data-m="rename">Rename</button><button class="mini" data-m="replace">Use this figure</button><button class="mini del" data-m="remove">Remove</button></div>';
+      wrap.querySelector('b').textContent = 'Master land: ' + master.name;
+      wrap.querySelector('.info').textContent = master.pts.length + ' points · ' + hectares(master.pts).toFixed(2) + ' ha';
+    } else {
+      wrap.innerHTML = '<button class="btn go" data-m="set" style="margin:0 0 12px">Set this figure as master land</button>';
+    }
+    wrap.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-m]'); if (!b) return;
+      var m = b.dataset.m;
+      if (m === 'set' || m === 'replace') {
+        if (problem(W.pts, 0)) return toast('Draw the whole land first');
+        var name = (master ? master.name : 'Master land');
+        master = { name: name, pts: W.pts.map(function (p) { return p.slice(); }) };
+        persistMaster(); render(); renderMaster(); toast('Master land set');
+      } else if (m === 'rename') {
+        inlineRename(wrap.querySelector('b'), master.name, function (v) {
+          if (v) { master.name = v; persistMaster(); }
+          renderMaster();
+        });
+      } else if (m === 'show') {
+        map.fitBounds(master.pts, { padding: [60, 60] });
+        closeSheets();
+      } else if (m === 'remove') {
+        if (!confirm('Remove the master land? Saved paddocks are kept.')) return;
+        master = null; persistMaster(); render(); renderMaster(); toast('Master land removed');
+      }
+    });
+    box.appendChild(wrap);
+  }
+
+  function renderSaved() {
+    var box = $('savedList');
+    if (!saved.length) { box.innerHTML = '<p class="sub">Nothing saved yet.</p>'; return; }
+    box.innerHTML = '';
+    saved.forEach(function (s, idx) {
+      var row = document.createElement('div');
+      row.className = 'row';
+      row.style.animationDelay = (idx * 40) + 'ms';
+      row.innerHTML = '<div class="nm"><b></b><small></small></div><button class="mini go">Load</button><button class="mini">Rename</button><button class="mini del">Delete</button>';
+      row.querySelectorAll('.mini')[1].onclick = function () {
+        inlineRename(row.querySelector('.nm'), s.name, function (v) {
+          if (v) { if (W.name === s.name && !W.dirty) { W.name = v; persistWork(); } s.name = v; persistSaved(); }
+          renderSaved();
+        });
+      };
+      row.querySelector('b').textContent = s.name;
+      row.querySelector('small').textContent = s.pts.length + ' points · ' + hectares(s.pts).toFixed(2) + ' ha';
+      row.querySelector('.go').onclick = function () {
+        if (W.pts.length && !confirm('Replace the figure on the map?')) return;
+        W = { pts: s.pts.map(function (p) { return p.slice(); }), name: s.name, dirty: false };
+        preview = null; fresh = -1; persistWork(); render(); closeSheets();
+        map.fitBounds(W.pts, { padding: [60, 60] });
+        toast('Loaded: ' + s.name);
+      };
+      row.querySelector('.del').onclick = function () {
+        if (!confirm('Delete "' + s.name + '"?')) return;
+        saved = saved.filter(function (x) { return x.id !== s.id; });
+        persistSaved(); renderSaved();
+      };
+      box.appendChild(row);
+    });
+  }
+
+  // replaces host's content with a small text box; calls done(newName) or done(null)
+  function inlineRename(host, current, done) {
+    host.innerHTML = '';
+    var wrap = document.createElement('div'); wrap.className = 'ren';
+    var inp = document.createElement('input'); inp.value = current; inp.maxLength = 60;
+    var ok = document.createElement('button'); ok.className = 'mini go'; ok.textContent = 'OK';
+    wrap.appendChild(inp); wrap.appendChild(ok); host.appendChild(wrap);
+    function commit() { var v = inp.value.trim().slice(0, 60); done(v || null); }
+    ok.onclick = commit;
+    inp.onkeydown = function (e) { if (e.key === 'Enter') commit(); };
+    inp.focus();
+  }
+
+  function saveBoundary(name, poly) {
+    saved.unshift({ id: uid(), name: name, pts: poly.map(function (p) { return p.slice(); }), t: Date.now() });
+    persistSaved();
+  }
+
+  // ---------- offline map tiles ----------
+  function tileList(b) {
+    var out = [];
+    [15, 16, 17, 18].forEach(function (z) {
+      var n = Math.pow(2, z);
+      var x0 = Math.floor((b.getWest() + 180) / 360 * n), x1 = Math.floor((b.getEast() + 180) / 360 * n);
+      var la1 = b.getNorth() * Math.PI / 180, la2 = b.getSouth() * Math.PI / 180;
+      var y0 = Math.floor((1 - Math.log(Math.tan(la1) + 1 / Math.cos(la1)) / Math.PI) / 2 * n);
+      var y1 = Math.floor((1 - Math.log(Math.tan(la2) + 1 / Math.cos(la2)) / Math.PI) / 2 * n);
+      for (var x = x0; x <= x1; x++)
+        for (var y = y0; y <= y1; y++)
+          out.push(TILE.replace('{z}', z).replace('{y}', y).replace('{x}', x));
+    });
+    return out;
+  }
+
+  function saveOffline() {
+    var all = [];
+    if (master) all = all.concat(master.pts);
+    if (W.pts.length) all = all.concat(W.pts);
+    var b = all.length >= 3 ? L.latLngBounds(all).pad(0.25) : map.getBounds();
+    var list = tileList(b);
+    if (list.length > 900) return toast('Area too big (' + list.length + ' map tiles). Use a smaller field.');
+    if (!('serviceWorker' in navigator)) return toast('Offline maps need the web version');
+    var btn = $('btn-offline'), info = $('offlineInfo');
+    btn.disabled = true;
+    var q = list.slice(), done = 0, bad = 0, workers = 6;
+    function finish() {
+      btn.disabled = false;
+      btn.textContent = 'Save map for offline';
+      info.textContent = bad ? (bad + ' tiles failed. Try again with signal.') : (list.length + ' map tiles saved on this phone.');
+      toast(bad ? 'Some tiles failed' : 'Map saved for offline');
+    }
+    function pump() {
+      if (!q.length) { if (--workers === 0) finish(); return; }
+      var u = q.shift();
+      fetch(u, { mode: 'no-cors' }).catch(function () { bad++; }).then(function () {
+        done++;
+        btn.textContent = 'Saving ' + Math.round(done / list.length * 100) + '%';
+        pump();
+      });
+    }
+    for (var w = 0; w < 6; w++) pump();
+  }
+
+  // ---------- selecting and deleting a single point ----------
+  function showPointBar() {
+    $('pointLbl').textContent = 'Point ' + (selPt + 1) + ' selected';
+    $('pointBar').hidden = selPt < 0;
+  }
+  function selectPoint(i) {
+    selPt = i;
+    closeSheets();
+    showPointBar();
+    render();
+  }
+  function clearSelection() {
+    selPt = -1;
+    showPointBar();
+    render();
+  }
+  $('pt-cancel').onclick = clearSelection;
+  $('pt-del').onclick = function () {
+    if (selPt < 0 || selPt >= W.pts.length) return clearSelection();
+    var rest = W.pts.filter(function (_, k) { return k !== selPt; });
+    if (rest.length >= 4 && selfCrossing(rest)) {
+      return toast('Removing this point would cross the outline');
+    }
+    W.pts = rest;
+    selPt = -1;
+    showPointBar();
+    changed();
+    toast('Point deleted');
+  };
+
+  // ---------- map: tap to add (double-tap still zooms) ----------
+  map.on('click', function (e) {
+    if (selPt >= 0) { clearSelection(); return; }
+    if (anySheetOpen()) { closeSheets(); return; }
+    if (!tapOn) return;
+    clearTimeout(tapT);
+    var ll = e.latlng;
+    tapT = setTimeout(function () { addPoint(ll.lat, ll.lng); }, 230);
+  });
+  map.on('dblclick', function () { clearTimeout(tapT); });
+
+  // ---------- buttons ----------
+  function setTapUI() { $('b-tap').classList.toggle('on', !!tapOn); }
+  $('b-tap').onclick = function () {
+    tapOn = !tapOn; store(K_TAP, tapOn); setTapUI();
+    toast(tapOn ? 'Tap map to add points' : 'Tap map does not add points');
+  };
+
+  $('b-del').onclick = function () {
+    if (!W.pts.length && !preview) return toast('Nothing to delete');
+    if (!confirm('Delete this figure from the map?')) return;
+    W = { pts: [], name: '', dirty: false };
+    preview = null; fresh = -1; persistWork(); render(); closeSheets();
+    toast('Figure deleted');
+  };
+
+  $('b-add').onclick = function () { closeSheets(); var c = map.getCenter(); addPoint(c.lat, c.lng); };
+
+  $('b-gps').onclick = function () {
+    closeSheets();
+    if (!navigator.geolocation) return toast('No GPS on this phone');
+    toast('Finding GPS...');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      addPoint(pos.coords.latitude, pos.coords.longitude);
+      map.panTo([pos.coords.latitude, pos.coords.longitude]);
+    }, function () { toast('Allow location for this site'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  };
+
+  $('b-undo').onclick = function () { closeSheets(); if (W.pts.length) { W.pts.pop(); changed(); } };
+
+  $('b-send').onclick = function () {
+    var err = problem(W.pts, MAX);
+    if (err) { closeSheets(); return toast(err); }
+    var label = W.name ? W.name + (W.dirty ? ' (edited, not saved)' : '') : 'Unsaved figure';
+    $('sendInfo').innerHTML = '';
+    var b = document.createElement('b'); b.textContent = label;
+    $('sendInfo').appendChild(b);
+    $('sendInfo').appendChild(document.createTextNode(' · ' + W.pts.length + ' points · ' + hectares(W.pts).toFixed(2) + ' ha'));
+    showSheet('sheetSend');
+  };
+
+  function setSplitSrc(src) {
+    splitSrc = src;
+    $('seg-master').classList.toggle('on', src === 'master');
+    $('seg-figure').classList.toggle('on', src === 'figure');
+    var pts = src === 'master' && master ? master.pts : W.pts;
+    var name = src === 'master' && master ? master.name : (W.name || 'Figure');
+    $('splitSrcInfo').innerHTML = '';
+    var b = document.createElement('b'); b.textContent = name;
+    $('splitSrcInfo').appendChild(b);
+    $('splitSrcInfo').appendChild(document.createTextNode(' · ' + pts.length + ' points · ' + hectares(pts).toFixed(2) + ' ha'));
+  }
+
+  $('b-split').onclick = function () {
+    if (!master && W.pts.length < MIN) { closeSheets(); return toast('Draw the land or set a master land first'); }
+    if (!master) splitSrc = 'figure';
+    $('seg-master').disabled = !master;
+    $('seg-master').style.opacity = master ? 1 : .4;
+    setSplitSrc(splitSrc);
+    $('splitInfo').textContent = preview ? preview.length + ' paddocks shown' : '';
+    $('btn-saveall').hidden = !preview;
+    showSheet('sheetSplit');
+  };
+  $('seg-master').onclick = function () { if (master) setSplitSrc('master'); };
+  $('seg-figure').onclick = function () { setSplitSrc('figure'); };
+
+  function stepN(d) {
+    var el = $('n-count'), v = (parseInt(el.value, 10) || 4) + d;
+    el.value = Math.min(12, Math.max(2, v));
+  }
+  $('n-minus').onclick = function () { stepN(-1); };
+  $('n-plus').onclick = function () { stepN(1); };
+
+  $('btn-make').onclick = function () {
+    var n = parseInt($('n-count').value, 10);
+    if (!(n >= 2 && n <= 12)) return toast('Choose 2 to 12 paddocks');
+    var src = splitSrc === 'master' && master ? master.pts : W.pts;
+    var err = problem(src, 0);
+    if (err) return toast(err);
+    var c = centroid(src), P = projection(c[0], c[1]);
+    var local = src.map(P.fwd);
+    var pieces = split(local, n).filter(function (q) { return q.length >= 3 && area(q) > 1; });
+    var result = pieces.map(function (q) { return simplify(q, MAX).map(P.inv); });
+    var base = (splitSrc === 'master' && master) ? master.name : (W.name || 'Field');
+    var box = $('padNames'); box.innerHTML = '';
+    result.forEach(function (q, i) {
+      var inp = document.createElement('input');
+      inp.className = 'padIn'; inp.maxLength = 60; inp.value = base + ' ' + (i + 1);
+      inp.style.borderLeftColor = COLORS[i % COLORS.length];
+      box.appendChild(inp);
+    });
+    var tight = result.some(function (q) { return problem(q, MAX) !== ''; });
+    preview = result;
+    render();
+    map.fitBounds(src, { padding: [60, 60] });
+    var ha = (area(local) / 10000 / result.length).toFixed(2);
+    $('splitInfo').textContent = result.length + ' paddocks · about ' + ha + ' ha each' + (tight ? ' (some edges are tight: try another number)' : '');
+    $('btn-saveall').hidden = false;
+  };
+
+  $('btn-saveall').onclick = function () {
+    if (!preview) return;
+    var names = document.querySelectorAll('#padNames .padIn');
+    preview.forEach(function (q, i) {
+      var v = names[i] ? names[i].value.trim().slice(0, 60) : '';
+      saveBoundary(v || ('Paddock ' + (i + 1)), q);
+    });
+    renderSaved();
+    toast(preview.length + ' paddocks saved');
+    showSheet('sheetSaved');
+  };
+
+  $('b-saved').onclick = function () {
+    renderMaster(); renderSaved();
+    $('nameIn').value = W.name || '';
+    showSheet('sheetSaved');
+  };
+
+  $('btn-save').onclick = function () {
+    var err = problem(W.pts, MAX);
+    if (err) return toast(err);
+    var name = ($('nameIn').value.trim().slice(0, 60)) || W.name || ('Field ' + (saved.length + 1));
+    saveBoundary(name, W.pts);
+    W.name = name; W.dirty = false; persistWork();
+    renderSaved();
+    toast('Saved');
+  };
+
+  $('btn-offline').onclick = saveOffline;
+
+  $('btn-send').onclick = function () {
+    var f = document.createElement('form');
+    f.method = 'POST'; f.action = 'http://192.168.4.1/save'; f.target = '_blank';
+    var t = document.createElement('textarea'); t.name = 'geofence'; t.value = text(W.pts);
+    f.appendChild(t); document.body.appendChild(f); f.submit();
+    setTimeout(function () { f.remove(); }, 1000);
+  };
+
+  $('btn-copy').onclick = function () {
+    var t = text(W.pts);
+    function fallback() {
+      var ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast('Copied'); } catch (e) { toast('Copy not allowed'); }
+      ta.remove();
+    }
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(function () { toast('Copied'); }, fallback);
+    else fallback();
+  };
+
+  $('btn-close1').onclick = closeSheets;
+  $('btn-close2').onclick = closeSheets;
+  $('btn-close3').onclick = closeSheets;
+
+  $('locate').onclick = function () {
+    if (!navigator.geolocation) return toast('No GPS on this phone');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var p = [pos.coords.latitude, pos.coords.longitude];
+      meLayer.clearLayers();
+      L.marker(p, { interactive: false, icon: L.divIcon({ className: '', html: '<div class="me"><b></b></div>', iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(meLayer);
+      map.setView(p, 18);
+    }, function () { toast('Allow location for this site'); }, { enableHighAccuracy: true, timeout: 15000 });
+  };
+
+  setTapUI();
+  render();
+  if (W.pts.length >= 2) map.fitBounds(W.pts, { padding: [60, 60] });
+  else if (master) map.fitBounds(master.pts, { padding: [60, 60] });
+  if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>
