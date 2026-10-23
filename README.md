@@ -16,3 +16,7 @@ The app draws the boundary and sends it to the collar. The collar does the alarm
 ## Offline maps
 - Open the app once with signal. Map tiles you look at are kept on the phone.
 - For a field you will visit without signal: draw the boundary, open **Saved**, tap **Save map for offline**. This stores the satellite map around the boundary (up to about 900 tiles).
+
+## Android download on the website
+- The website has a **Download the app (APK)** page at `/get.html`, and the Saved panel in the app has a **Download Android app** button. Both link to the latest APK built by the Android workflow.
+- The APK appears only after the **Build Android APK** workflow has finished successfully in the Actions tab. If the link opens a "Not Found" page, open the Actions tab and check that workflow for a red X.

@@ -30,6 +30,7 @@
     transition:transform .15s,background .2s,color .2s}
   .ic svg{width:20px;height:20px}
   .ic.on{background:#8fb173;color:#0a1a0f;border-color:transparent}
+  #bar button.on{background:#8fb173;color:#0a1a0f}
   .ic.warn{color:#fda4af}
 
   /* ---------- crosshair ---------- */
@@ -114,12 +115,12 @@
   <button class="ic" id="b-tap" aria-label="Tap map to add points"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1 11-11-3-3L5 16z"/></svg></button>
   <button class="ic warn" id="b-del" aria-label="Delete figure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
   <button class="ic" id="b-saved" aria-label="Saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
-  <button class="ic" id="locate" aria-label="My location"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+  <button class="ic" id="locate" aria-label="Follow my GPS"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
 </div>
 
 <div id="bar" class="glass">
   <button id="b-add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Point</button>
-  <button id="b-gps"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>GPS</button>
+  <button id="b-walk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 19 12 5l7 14-7-4z"/></svg>Walk</button>
   <button id="b-undo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Undo</button>
   <button id="b-split"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M12 4v16M4 12h16" opacity="0.6"/></svg>Split</button>
   <button id="b-send" class="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>Send</button>
@@ -160,6 +161,7 @@
   <button class="btn go" id="btn-save">Save this figure</button>
   <div id="savedList"></div>
   <button class="btn" id="btn-offline">Save map for offline</button>
+  <a class="btn go" id="apkBtn" href="get.html" hidden style="text-align:center;text-decoration:none;line-height:46px">Download Android app</a>
   <p class="sub" id="offlineInfo">Maps you view are kept on this phone too.</p>
   <button class="btn" id="btn-close3">Close</button>
 </div>
@@ -197,8 +199,9 @@
   var tapT = null;
   var splitSrc = master ? 'master' : 'figure';
 
-  var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([-0.3976, 36.9612], 18);
-  L.tileLayer(TILE, { maxZoom: 19 }).addTo(map);
+  var map = L.map('map', { zoomControl: false, attributionControl: false, maxZoom: 19 }).setView([-0.3976, 36.9612], 17);
+  // photos are only reliable up to zoom 17 in many rural areas; past that they are enlarged
+L.tileLayer(TILE, { maxZoom: 19, maxNativeZoom: 17 }).addTo(map);
   var shapes = L.layerGroup().addTo(map);
   var meLayer = L.layerGroup().addTo(map);
 
@@ -206,9 +209,19 @@
   function persistSaved() { store(K_SAVED, saved); }
   function persistMaster() { store(K_MASTER, master); }
   function vib(ms) { if (navigator.vibrate) navigator.vibrate(ms); }
-  function toast(msg) {
-    var t = $('toast'); t.textContent = msg; t.classList.add('show');
-    clearTimeout(toast.t); toast.t = setTimeout(function () { t.classList.remove('show'); }, 2400);
+  function toast(msg, action) {
+    var t = $('toast'); t.innerHTML = '';
+    var sp = document.createElement('span'); sp.textContent = msg; t.appendChild(sp);
+    if (action) {
+      var b = document.createElement('button');
+      b.className = 'mini go'; b.textContent = action.label; b.style.marginLeft = '10px';
+      b.onclick = function () { t.classList.remove('show'); action.run(); };
+      t.appendChild(b);
+    }
+    t.style.pointerEvents = action ? 'auto' : 'none';
+    t.classList.add('show');
+    clearTimeout(toast.t);
+    toast.t = setTimeout(function () { t.classList.remove('show'); }, action ? 5000 : 2400);
   }
   function round6(x) { return Math.round(x * 1e6) / 1e6; }
   function uid() { return Date.now().toString(36) + Math.floor(Math.random() * 1000); }
@@ -408,11 +421,14 @@
           renderMaster();
         });
       } else if (m === 'show') {
-        map.fitBounds(master.pts, { padding: [60, 60] });
+        map.fitBounds(master.pts, { padding: [60, 60], maxZoom: 18 });
         closeSheets();
       } else if (m === 'remove') {
-        if (!confirm('Remove the master land? Saved paddocks are kept.')) return;
-        master = null; persistMaster(); render(); renderMaster(); toast('Master land removed');
+        var oldMaster = master;
+        master = null; persistMaster(); render(); renderMaster();
+        toast('Master land removed', { label: 'Undo', run: function () {
+          master = oldMaster; persistMaster(); render(); renderMaster();
+        } });
       }
     });
     box.appendChild(wrap);
@@ -436,16 +452,23 @@
       row.querySelector('b').textContent = s.name;
       row.querySelector('small').textContent = s.pts.length + ' points · ' + hectares(s.pts).toFixed(2) + ' ha';
       row.querySelector('.go').onclick = function () {
-        if (W.pts.length && !confirm('Replace the figure on the map?')) return;
+        var snap = { pts: cp(W.pts), name: W.name, dirty: W.dirty }, snapP = preview;
         W = { pts: s.pts.map(function (p) { return p.slice(); }), name: s.name, dirty: false };
         preview = null; fresh = -1; persistWork(); render(); closeSheets();
-        map.fitBounds(W.pts, { padding: [60, 60] });
-        toast('Loaded: ' + s.name);
+        map.fitBounds(W.pts, { padding: [60, 60], maxZoom: 18 });
+        toast('Loaded: ' + s.name, { label: 'Undo', run: function () {
+          W = snap; preview = snapP; persistWork(); render();
+          map.fitBounds(W.pts.length >= 2 ? W.pts : map.getBounds(), { padding: [60, 60], maxZoom: 18 });
+        } });
       };
       row.querySelector('.del').onclick = function () {
-        if (!confirm('Delete "' + s.name + '"?')) return;
-        saved = saved.filter(function (x) { return x.id !== s.id; });
+        var idx = saved.indexOf(s);
+        saved.splice(idx, 1);
         persistSaved(); renderSaved();
+        toast('Deleted "' + s.name + '"', { label: 'Undo', run: function () {
+          saved.splice(Math.min(idx, saved.length), 0, s);
+          persistSaved(); renderSaved();
+        } });
       };
       box.appendChild(row);
     });
@@ -472,7 +495,7 @@
   // ---------- offline map tiles ----------
   function tileList(b) {
     var out = [];
-    [15, 16, 17, 18].forEach(function (z) {
+    [15, 16, 17].forEach(function (z) {
       var n = Math.pow(2, z);
       var x0 = Math.floor((b.getWest() + 180) / 360 * n), x1 = Math.floor((b.getEast() + 180) / 360 * n);
       var la1 = b.getNorth() * Math.PI / 180, la2 = b.getSouth() * Math.PI / 180;
@@ -537,11 +560,12 @@
     if (rest.length >= 4 && selfCrossing(rest)) {
       return toast('Removing this point would cross the outline');
     }
+    var before = cp(W.pts);
     W.pts = rest;
     selPt = -1;
     showPointBar();
     changed();
-    toast('Point deleted');
+    toast('Point deleted', { label: 'Undo', run: function () { W.pts = before; changed(); } });
   };
 
   // ---------- map: tap to add (double-tap still zooms) ----------
@@ -564,23 +588,15 @@
 
   $('b-del').onclick = function () {
     if (!W.pts.length && !preview) return toast('Nothing to delete');
-    if (!confirm('Delete this figure from the map?')) return;
+    var snap = { pts: cp(W.pts), name: W.name, dirty: W.dirty }, snapP = preview;
     W = { pts: [], name: '', dirty: false };
     preview = null; fresh = -1; persistWork(); render(); closeSheets();
-    toast('Figure deleted');
+    toast('Figure deleted', { label: 'Undo', run: function () {
+      W = snap; preview = snapP; persistWork(); render();
+    } });
   };
 
   $('b-add').onclick = function () { closeSheets(); var c = map.getCenter(); addPoint(c.lat, c.lng); };
-
-  $('b-gps').onclick = function () {
-    closeSheets();
-    if (!navigator.geolocation) return toast('No GPS on this phone');
-    toast('Finding GPS...');
-    navigator.geolocation.getCurrentPosition(function (pos) {
-      addPoint(pos.coords.latitude, pos.coords.longitude);
-      map.panTo([pos.coords.latitude, pos.coords.longitude]);
-    }, function () { toast('Allow location for this site'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
-  };
 
   $('b-undo').onclick = function () { closeSheets(); if (W.pts.length) { W.pts.pop(); changed(); } };
 
@@ -648,7 +664,7 @@
     var tight = result.some(function (q) { return problem(q, MAX) !== ''; });
     preview = result;
     render();
-    map.fitBounds(src, { padding: [60, 60] });
+    map.fitBounds(src, { padding: [60, 60], maxZoom: 18 });
     var ha = (area(local) / 10000 / result.length).toFixed(2);
     $('splitInfo').textContent = result.length + ' paddocks · about ' + ha + ' ha each' + (tight ? ' (some edges are tight: try another number)' : '');
     $('btn-saveall').hidden = false;
@@ -707,20 +723,94 @@
   $('btn-close2').onclick = closeSheets;
   $('btn-close3').onclick = closeSheets;
 
+  // ---------- GPS: follow me, and walk-to-draw ----------
+  var WALK_STEP = 8;          // metres walked before the next corner is added
+  var WALK_ACC = 15;          // ignore fixes less accurate than this (metres)
+  var follow = false, walk = false, watchId = null, lastWalk = null, lastFix = null, warnAt = 0, meMarker = null;
+
+  function metresBetween(a, b) {
+    var dy = (b[0] - a[0]) * 111320;
+    var dx = (b[1] - a[1]) * 111320 * Math.cos(a[0] * Math.PI / 180);
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function startWatch() {
+    if (watchId !== null || !navigator.geolocation) return;
+    watchId = navigator.geolocation.watchPosition(onGps, function () {
+      toast('Allow location for this site');
+      follow = false; walk = false; stopWatch(); updateGpsUI();
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  }
+  function stopWatch() {
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  }
+  function updateGpsUI() {
+    $('locate').classList.toggle('on', follow);
+    $('b-walk').classList.toggle('on', walk);
+  }
+  function onGps(pos) {
+    var ll = [pos.coords.latitude, pos.coords.longitude], acc = pos.coords.accuracy;
+    lastFix = ll;
+    if (!meMarker) {
+      meMarker = L.marker(ll, { interactive: false, icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(meLayer);
+    } else {
+      meMarker.setLatLng(ll);
+    }
+    if (follow) map.panTo(ll);
+    if (walk) {
+      if (acc > WALK_ACC) {
+        if (Date.now() - warnAt > 8000) { warnAt = Date.now(); toast('GPS weak (' + Math.round(acc) + ' m), waiting'); }
+        return;
+      }
+      if (!lastWalk || metresBetween(lastWalk, ll) >= WALK_STEP) {
+        var before = W.pts.length;
+        addPoint(ll[0], ll[1]);
+        if (W.pts.length > before) lastWalk = ll;
+      }
+    }
+  }
+
   $('locate').onclick = function () {
-    if (!navigator.geolocation) return toast('No GPS on this phone');
-    navigator.geolocation.getCurrentPosition(function (pos) {
-      var p = [pos.coords.latitude, pos.coords.longitude];
-      meLayer.clearLayers();
-      L.marker(p, { interactive: false, icon: L.divIcon({ className: '', html: '<div class="me"><b></b></div>', iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(meLayer);
-      map.setView(p, 18);
-    }, function () { toast('Allow location for this site'); }, { enableHighAccuracy: true, timeout: 15000 });
+    follow = !follow;
+    if (follow) {
+      startWatch();
+      if (lastFix) map.setView(lastFix, 17);
+      toast('Following your GPS');
+    } else {
+      if (!walk) stopWatch();
+      toast('Stopped following');
+    }
+    updateGpsUI();
+  };
+
+  $('b-walk').onclick = function () {
+    walk = !walk;
+    if (walk) {
+      lastWalk = null;
+      closeSheets();
+      startWatch();
+      toast('Walking: a corner every ' + WALK_STEP + ' m');
+    } else {
+      if (!follow) stopWatch();
+      toast('Walk stopped');
+    }
+    updateGpsUI();
   };
 
   setTapUI();
+  // Android download: works automatically when the site is on GitHub Pages
+  (function () {
+    var m = location.hostname.match(/^([^.]+)\.github\.io$/);
+    if (!m) return;                       // inside the Android app or another host: hide the button
+    var parts = location.pathname.split('/').filter(Boolean);
+    var repo = parts.length ? parts[0] : m[1] + '.github.io';
+    var btn = $('apkBtn');
+    btn.href = 'https://github.com/' + m[1] + '/' + repo + '/releases/download/app-latest/herdguard.apk';
+    btn.hidden = false;
+  })();
+
   render();
-  if (W.pts.length >= 2) map.fitBounds(W.pts, { padding: [60, 60] });
-  else if (master) map.fitBounds(master.pts, { padding: [60, 60] });
+  if (W.pts.length >= 2) map.fitBounds(W.pts, { padding: [60, 60], maxZoom: 18 });
+  else if (master) map.fitBounds(master.pts, { padding: [60, 60], maxZoom: 18 });
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
