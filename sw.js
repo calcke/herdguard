@@ -68,7 +68,7 @@ self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
-  if (url.hostname === 'server.arcgisonline.com') { e.respondWith(tileRequest(req)); return; }
+  if (url.hostname === 'server.arcgisonline.com' || url.hostname === 'api.mapbox.com') { e.respondWith(tileRequest(req)); return; }
   if (url.hostname === 'unpkg.com') { e.respondWith(cacheFirst(req, SHELL_CACHE)); return; }
   if (url.origin !== location.origin) return;
   e.respondWith(networkFirst(req));

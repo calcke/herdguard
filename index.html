@@ -161,6 +161,11 @@
   <button class="btn go" data-shape="rect">Rectangle</button>
   <button class="btn" data-shape="tri">Triangle</button>
   <button class="btn" data-shape="circle">Circle</button>
+  <label class="field">Or paste points, one per line (lat, lng)</label>
+  <textarea id="custIn" class="nameIn coordtxt" placeholder="-0.3976, 36.9612"></textarea>
+  <button class="btn go" id="btn-cust">Draw shape from these points</button>
+  <button class="btn" id="btn-kml">Import from Google My Maps (KML)</button>
+  <input type="file" id="kmlIn" accept=".kml,.geojson,.json" style="display:none">
   <button class="btn" id="btn-close4">Close</button>
 </div>
 
@@ -205,6 +210,7 @@
     <button id="n-plus" aria-label="More">+</button>
   </div>
   <button class="btn go" id="btn-make">Make paddocks</button>
+  <button class="btn" id="btn-reshuffle" hidden>Reshuffle</button>
   <p class="info" id="splitInfo" style="margin-top:10px"></p>
   <div id="padNames"></div>
   <button class="btn" id="btn-saveall" hidden>Save all paddocks</button>
@@ -217,6 +223,11 @@
   <input class="nameIn" id="nameIn" maxlength="60" placeholder="Name this shape">
   <button class="btn go" id="btn-save">Save this figure</button>
   <div id="savedList"></div>
+  <div class="seg" id="srcSeg" style="grid-template-columns:1fr 1fr">
+    <button data-src="esri">Satellite</button>
+    <button data-src="mapbox">Sharper</button>
+  </div>
+  <input class="nameIn" id="mbToken" placeholder="Sharper map key (free Mapbox token)" hidden>
   <button class="btn" id="btn-coords">Show coordinates</button>
   <button class="btn" id="btn-pic">Download</button>
   <button class="btn" id="btn-offline">Save map for offline</button>
@@ -273,6 +284,7 @@ window.herdBoot = function () {
   var selShape = -1;      // -1 none, -2 the shape being edited, otherwise index in W.parts
   var splitSrc = master ? 'master' : 'figure';
   var splitMode = 'blocks';
+  var splitSeed = 0;      // 0 = standard split; Reshuffle picks a new seed
 
   // ---------- helpers ----------
   function toast(msg, action) {
@@ -294,8 +306,15 @@ window.herdBoot = function () {
   function uid() { return Date.now().toString(36) + Math.floor(Math.random() * 1000); }
   function copyPts(a) { return a.map(function (p) { return p.slice(); }); }
 
-  var map = L.map('map', { zoomControl: false, attributionControl: false, maxZoom: 19 }).setView([-0.3976, 36.9612], 17);
-  L.tileLayer(TILE, { maxZoom: 19, maxNativeZoom: 17 }).addTo(map);     // photos are enlarged past zoom 17
+  var K_SRC = 'herdguard.source', K_MBTOKEN = 'herdguard.mbtoken';
+  var MB_TILES = 'https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/256/{z}/{x}/{y}@2x';
+  var mapSource = load(K_SRC, 'esri'), mbToken = load(K_MBTOKEN, '');
+  function usingMapbox() { return mapSource === 'mapbox' && !!mbToken; }
+  function tileTemplate() { return usingMapbox() ? MB_TILES + '?access_token=' + encodeURIComponent(mbToken) : TILE; }
+  function tileMaxNative() { return usingMapbox() ? 20 : 19; }
+
+  var map = L.map('map', { zoomControl: false, attributionControl: false, maxZoom: 20 }).setView([-0.3976, 36.9612], 17);
+  var baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 20, maxNativeZoom: tileMaxNative() }).addTo(map);
   var shapes = L.layerGroup().addTo(map);
   var meLayer = L.layerGroup().addTo(map);
 
@@ -452,13 +471,22 @@ window.herdBoot = function () {
     return out;
   }
   // STRIPS: equal-area slices across the long axis (metres in, metres out)
-  function strips(poly, n) {
+  function rng(seed) {
+    var a = (seed >>> 0) || 1;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function strips(poly, n, seed) {
     var mx = 0, my = 0;
     poly.forEach(function (p) { mx += p[0]; my += p[1]; });
     mx /= poly.length; my /= poly.length;
     var sxx = 0, syy = 0, sxy = 0;
     poly.forEach(function (p) { var dx = p[0] - mx, dy = p[1] - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; });
-    var th = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    var th = 0.5 * Math.atan2(2 * sxy, sxx - syy) + (seed ? ((seed * 0.618034) % 1) * Math.PI : 0);
     var d = [Math.cos(th), Math.sin(th)];
     var pieces = [], rest = poly;
     for (var k = 0; k < n - 1; k++) {
@@ -478,7 +506,7 @@ window.herdBoot = function () {
     return pieces;
   }
   // BLOCKS: n pieces of about equal area, each one connected piece (metres in, metres out)
-  function blocks(poly, n) {
+  function blocks(poly, n, seed) {
     var xs = poly.map(function (p) { return p[0]; }), ys = poly.map(function (p) { return p[1]; });
     var minx = Math.min.apply(null, xs), maxx = Math.max.apply(null, xs);
     var miny = Math.min.apply(null, ys), maxy = Math.max.apply(null, ys);
@@ -501,6 +529,7 @@ window.herdBoot = function () {
     mxc /= cells.length; myc /= cells.length;
     var first = 0, fd = Infinity;
     for (var q = 0; q < cells.length; q++) { var dd = Math.hypot(cx[q] - mxc, cy[q] - myc); if (dd < fd) { fd = dd; first = q; } }
+    if (seed) first = Math.floor(rng(seed)() * cells.length);
     sx.push(cx[first]); sy.push(cy[first]);
     while (sx.length < n) {
       var far = 0, fmax = -1;
@@ -841,10 +870,26 @@ window.herdBoot = function () {
     });
   }
 
+  // ---------- map source ----------
+  function setBaseLayer() {
+    if (baseLayer) map.removeLayer(baseLayer);
+    baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 20, maxNativeZoom: tileMaxNative() }).addTo(map);
+  }
+  function updateSrcUI() {
+    document.querySelectorAll('#srcSeg button').forEach(function (b) { b.classList.toggle('on', b.dataset.src === mapSource); });
+    $('mbToken').hidden = mapSource !== 'mapbox';
+  }
+  document.querySelectorAll('#srcSeg button').forEach(function (b) {
+    b.onclick = function () { mapSource = b.dataset.src; store(K_SRC, mapSource); updateSrcUI(); setBaseLayer(); };
+  });
+  $('mbToken').value = mbToken;
+  $('mbToken').onchange = function () { mbToken = this.value.trim(); store(K_MBTOKEN, mbToken); setBaseLayer(); toast(mbToken ? 'Sharper map on' : 'Add your Mapbox key'); };
+
   // ---------- offline map tiles ----------
   function tileList(b) {
     var out = [];
-    [15, 16, 17].forEach(function (z) {
+    var top = Math.min(19, tileMaxNative());
+    for (var z = 15; z <= top; z++) {
       var n = Math.pow(2, z);
       var x0 = Math.floor((b.getWest() + 180) / 360 * n), x1 = Math.floor((b.getEast() + 180) / 360 * n);
       var la1 = b.getNorth() * Math.PI / 180, la2 = b.getSouth() * Math.PI / 180;
@@ -852,8 +897,8 @@ window.herdBoot = function () {
       var y1 = Math.floor((1 - Math.log(Math.tan(la2) + 1 / Math.cos(la2)) / Math.PI) / 2 * n);
       for (var x = x0; x <= x1; x++)
         for (var y = y0; y <= y1; y++)
-          out.push(TILE.replace('{z}', z).replace('{y}', y).replace('{x}', x));
-    });
+          out.push(tileTemplate().replace('{z}', z).replace('{y}', y).replace('{x}', x));
+    }
     return out;
   }
   function saveOffline() {
@@ -913,21 +958,89 @@ window.herdBoot = function () {
 
   $('b-add').onclick = function () { closeSheets(); var c = map.getCenter(); addPoint(c.lat, c.lng); };
 
+  // the one place a shape is added to the map: refuses overlaps and crossing lines
+  function commitShape(pts) {
+    if (W.pts.length && W.pts.length < MIN) return 'busy';
+    if (selfCrossing(pts)) return 'cross';
+    if (allShapes().some(function (o) { return overlaps(pts, o); })) return 'overlap';
+    if (W.pts.length >= MIN) W.parts.push(copyPts(W.pts));
+    W.pts = pts; W.dirty = true; preview = null; selPt = -1; showPointBar(); selShape = -1; showShapeBar();
+    closeSheets(); changed();
+    return 'ok';
+  }
+  function explain(r) {
+    return { busy: 'Finish this shape first', cross: 'Lines cross. Fix the order of the points', overlap: 'No room here. Move the map and try again' }[r];
+  }
+
   function placeShape(kind) {
-    if (W.pts.length && W.pts.length < MIN) return toast('Finish this shape first');
     var b = map.getBounds();
     var size = Math.max(30, map.distance([b.getNorth(), b.getWest()], [b.getNorth(), b.getEast()]) / 4);
     var c = map.getCenter(), P = projection(c.lat, c.lng), local = [];
     if (kind === 'rect') { var w = size, h = size * 0.7; local = [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]]; }
     else if (kind === 'tri') { local = [[0, size * 0.6], [-size / 2, -size * 0.4], [size / 2, -size * 0.4]]; }
     else { for (var i = 0; i < 16; i++) { var a = i / 16 * 2 * Math.PI; local.push([Math.cos(a) * size / 2, Math.sin(a) * size / 2]); } }
-    var pts = local.map(P.inv);
-    if (allShapes().some(function (o) { return overlaps(pts, o); })) return toast('No room here. Move the map and try again');
-    if (W.pts.length >= MIN) W.parts.push(copyPts(W.pts));
-    W.pts = pts; W.dirty = true; preview = null; selPt = -1; showPointBar();
-    closeSheets(); changed();
-    toast('Drag the corners to fit your land');
+    var r = commitShape(local.map(P.inv));
+    if (r === 'ok') toast('Drag the corners to fit your land'); else toast(explain(r));
   }
+
+  // KML (Google My Maps) and GeoJSON: every polygon becomes a shape
+  function kmlRings(t) {
+    var out = [], doc = new DOMParser().parseFromString(t, 'text/xml');
+    var polys = doc.getElementsByTagName('Polygon');
+    for (var i = 0; i < polys.length; i++) {
+      var c = polys[i].getElementsByTagName('coordinates')[0];
+      if (!c) continue;
+      var pts = c.textContent.trim().split(/\s+/).map(function (x) { var v = x.split(','); return [parseFloat(v[1]), parseFloat(v[0])]; })
+        .filter(function (p) { return !isNaN(p[0]) && !isNaN(p[1]); });
+      if (pts.length > 3 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+      if (pts.length >= 3) out.push(pts);
+    }
+    return out;
+  }
+  function geojsonRings(d) {
+    var out = [];
+    function addPoly(coords) {
+      var ring = coords[0].map(function (p) { return [p[1], p[0]]; });
+      if (ring.length > 3 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1]) ring.pop();
+      if (ring.length >= 3) out.push(ring);
+    }
+    function walk(g) {
+      if (!g) return;
+      if (g.type === 'FeatureCollection') g.features.forEach(walk);
+      else if (g.type === 'Feature') walk(g.geometry);
+      else if (g.type === 'Polygon') addPoly(g.coordinates);
+      else if (g.type === 'MultiPolygon') g.coordinates.forEach(addPoly);
+    }
+    walk(d);
+    return out;
+  }
+  function importShapes(text) {
+    var t = text.trim(), rings = [];
+    try { rings = t.charAt(0) === '{' ? geojsonRings(JSON.parse(t)) : kmlRings(t); }
+    catch (e) { return toast('That file could not be read'); }
+    if (!rings.length) return toast('No shapes found in that file');
+    var added = 0, skipped = 0;
+    rings.forEach(function (r) {
+      var pts = r.length > MAX ? simplify(r, MAX) : r;
+      if (commitShape(pts) === 'ok') added++; else skipped++;
+    });
+    toast(added + (added === 1 ? ' shape' : ' shapes') + ' imported' + (skipped ? ', ' + skipped + ' skipped (overlap or crossing)' : ''));
+  }
+  $('btn-cust').onclick = function () {
+    var pts = parseCoords($('custIn').value);
+    if (pts.length < MIN) return toast('Paste at least 3 points, one per line');
+    if (pts.length > MAX) { pts = simplify(pts, MAX); }
+    var r = commitShape(pts);
+    if (r !== 'ok') toast(explain(r));
+  };
+  $('btn-kml').onclick = function () { $('kmlIn').click(); };
+  $('kmlIn').onchange = function () {
+    var f = this.files[0]; if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () { importShapes(String(rd.result)); };
+    rd.readAsText(f);
+    this.value = '';
+  };
   document.querySelectorAll('[data-shape]').forEach(function (btn) {
     btn.onclick = function () { placeShape(btn.dataset.shape); };
   });
@@ -970,6 +1083,7 @@ window.herdBoot = function () {
   $('mode-strips').onclick = function () { splitMode = 'strips'; setModeUI(); };
 
   $('b-split').onclick = function () {
+    splitSeed = 0;
     if (!master && W.pts.length < MIN) { closeSheets(); return toast('Draw the land or set a master land first'); }
     if (!master) splitSrc = 'figure';
     $('seg-master').disabled = !master;
@@ -990,7 +1104,7 @@ window.herdBoot = function () {
   $('n-minus').onclick = function () { stepN(-1); };
   $('n-plus').onclick = function () { stepN(1); };
 
-  $('btn-make').onclick = function () {
+  function runMake() {
     var n = parseInt($('n-count').value, 10);
     if (!(n >= 2 && n <= 12)) return toast('Choose 2 to 12 paddocks');
     var src = splitSrc === 'master' && master ? master.pts : W.pts;
@@ -998,7 +1112,7 @@ window.herdBoot = function () {
     if (err) return toast(err);
     var c = centroid(src), P = projection(c[0], c[1]);
     var local = src.map(P.fwd);
-    var pieces = splitMode === 'blocks' ? blocks(local, n) : strips(local, n);
+    var pieces = splitMode === 'blocks' ? blocks(local, n, splitSeed) : strips(local, n, splitSeed);
     pieces = pieces.filter(function (q) { return q.length >= 3 && area(q) > 1; });
     var result = pieces.map(function (q) { return simplify(q, MAX).map(P.inv); });
     if (!result.length) return toast('Could not split this shape. Try another number.');
@@ -1017,7 +1131,10 @@ window.herdBoot = function () {
     var ha = area(local) / 10000 / result.length;
     $('splitInfo').textContent = result.length + ' paddocks · about ' + acresText(ha) + ' each' + (tight ? ' (some edges are tight: try another number)' : '');
     $('btn-saveall').hidden = false;
-  };
+    $('btn-reshuffle').hidden = false;
+  }
+  $('btn-make').onclick = function () { splitSeed = 0; runMake(); };
+  $('btn-reshuffle').onclick = function () { splitSeed = 1 + Math.floor(Math.random() * 1e9); runMake(); };
 
   $('btn-saveall').onclick = function () {
     if (!preview) return;
@@ -1245,7 +1362,7 @@ window.herdBoot = function () {
     picFailed = 0;
     if (withTiles) {
       // photos come from the highest sharp level (17) and are enlarged beyond it
-      var zt = Math.min(Math.floor(zf), 17), tile = 256 / Math.pow(2, zt), nt = Math.pow(2, zt);
+      var zt = Math.min(Math.floor(zf), tileMaxNative()), tile = 256 / Math.pow(2, zt), nt = Math.pow(2, zt);
       var tx0 = Math.floor(ox / tile), tx1 = Math.floor((ox + PIC_W / S) / tile);
       var ty0 = Math.floor(oy / tile), ty1 = Math.floor((oy + PIC_H / S) / tile);
       for (var tx = tx0; tx <= tx1; tx++)
@@ -1254,7 +1371,7 @@ window.herdBoot = function () {
           var wx = ((tx % nt) + nt) % nt;
           (function (x, y, url) {
             jobs.push(loadImg(url).then(function (im) { g.drawImage(im, x, y, tile * S, tile * S); }, function () { picFailed++; }));
-          })((tx * tile - ox) * S, (ty * tile - oy) * S, TILE.replace('{z}', zt).replace('{y}', ty).replace('{x}', wx));
+          })((tx * tile - ox) * S, (ty * tile - oy) * S, tileTemplate().replace('{z}', zt).replace('{y}', ty).replace('{x}', wx));
         }
     }
     function XY(p) { return [(bx(p[1]) - ox) * S, (by(p[0]) - oy) * S]; }
