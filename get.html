@@ -30,14 +30,14 @@
   </ol>
   <a class="alt" href="index.html">Open the map in your browser instead</a>
 </div>
+<script src="apk-config.js"></script>
 <script>
   (function () {
-    var m = location.hostname.match(/^([^.]+)\.github\.io$/);
-    var parts = location.pathname.split('/').filter(Boolean);
-    if (m) {
-      var repo = parts.length ? parts[0] : m[1] + '.github.io';
-      document.getElementById('dl').href = 'https://github.com/' + m[1] + '/' + repo + '/releases/download/app-latest/herdguard.apk';
-    }
+    var url = window.hgApkUrl();
+    var a = document.getElementById('dl');
+    if (url) a.href = url;
+    else { a.removeAttribute('href'); a.style.opacity = '.5';
+      a.insertAdjacentHTML('afterend', '<p>Download link not set up yet: open apk-config.js and set HG_REPO to your-user/your-repo.</p>'); }
   })();
 </script>
 </body>

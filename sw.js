@@ -1,10 +1,10 @@
 /* Offline support.
    - App files and Leaflet are cached on install.
    - Satellite map tiles are cached as you look at them, and in bulk by "Save map for offline". */
-var SHELL_CACHE = 'herdguard-shell-v6';
+var SHELL_CACHE = 'herdguard-shell-v7';
 var TILE_CACHE = 'herdguard-tiles-v2';
 var MAX_TILES = 3000;
-var SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'get.html'];
+var SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'get.html', 'apk-config.js'];
 var LIBS = ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
 
 self.addEventListener('install', function (e) {

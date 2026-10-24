@@ -238,6 +238,7 @@
 
 <div id="toast"></div>
 
+<script src="apk-config.js"></script>
 <script>
 (function tryLeaflet(list) {
   if (!list.length) { document.getElementById('toast').textContent = 'Map could not load. Check internet.'; document.getElementById('toast').style.display = 'block'; return; }
@@ -1477,13 +1478,10 @@ window.herdBoot = function () {
   else if (master) map.fitBounds(master.pts, { padding: [60, 60], maxZoom: 18 });
   if (restoredFromBackup) toast('Restored from automatic backup');
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
-  // Android download: shows at the top when the site is on GitHub Pages
-  var gh = location.hostname.match(/^([^.]+)\.github\.io$/);
-  if (gh) {
-    var parts = location.pathname.split('/').filter(Boolean);
-    var repo = parts.length ? parts[0] : gh[1] + '.github.io';
+  // Android download: shown on the website (GitHub Pages, Netlify, ...), hidden inside the Android app
+  if (window.hgShowApk && window.hgShowApk()) {
     var apk = $('apkTop');
-    apk.href = 'https://github.com/' + gh[1] + '/' + repo + '/releases/download/app-latest/herdguard.apk';
+    apk.href = window.hgApkUrl() || 'get.html';
     apk.hidden = false;
   }
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
