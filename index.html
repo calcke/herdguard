@@ -345,6 +345,24 @@ window.herdBoot = function () {
       inv: function (q) { return [round6(lat0 + q[1] / k), round6(lng0 + q[0] / (k * cl))]; }
     };
   }
+  // hectares -> acres text; near a quarter it reads as ¼ ½ ¾ like farmers say it
+  function acresText(ha) {
+    var a = ha * 2.471054;
+    if (a <= 0) return '0 acres';
+    var whole = Math.floor(a), frac = a - whole;
+    var quarters = [0, 0.25, 0.5, 0.75, 1];
+    var best = quarters[0], gap = Infinity;
+    quarters.forEach(function (q) { if (Math.abs(frac - q) < gap) { gap = Math.abs(frac - q); best = q; } });
+    if (gap <= 0.06) {
+      var glyph = { 0: '', 0.25: '¼', 0.5: '½', 0.75: '¾' }[best === 1 ? 0 : best];
+      if (best === 1) whole += 1;
+      if (whole === 0 && glyph === '') return '< ¼ acre';
+      var txt = (whole > 0 ? whole : '') + glyph;
+      var singular = whole === 0 || (whole === 1 && glyph === '');
+      return txt + (singular ? ' acre' : ' acres');
+    }
+    return a < 10 ? a.toFixed(1) + ' acres' : Math.round(a) + ' acres';
+  }
   function hectares(poly) {
     if (poly.length < 3) return 0;
     var c = centroid(poly), P = projection(c[0], c[1]);
@@ -750,7 +768,7 @@ window.herdBoot = function () {
         '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="mini go" data-m="show">Show</button>' +
         '<button class="mini" data-m="rename">Rename</button><button class="mini" data-m="replace">Use this shape</button><button class="mini del" data-m="remove">Remove</button></div>';
       wrap.querySelector('b').textContent = 'Master land: ' + master.name;
-      wrap.querySelector('.info').textContent = master.pts.length + ' points · ' + hectares(master.pts).toFixed(2) + ' ha';
+      wrap.querySelector('.info').textContent = master.pts.length + ' points · ' + acresText(hectares(master.pts));
     } else {
       wrap.innerHTML = '<button class="btn go" data-m="set" style="margin:0 0 12px">Set this shape as master land</button>';
     }
@@ -799,7 +817,7 @@ window.herdBoot = function () {
       row.className = 'row';
       row.innerHTML = '<div class="nm"><b></b><small></small></div><button class="mini go">Load</button><button class="mini">Rename</button><button class="mini del">Delete</button>';
       row.querySelector('b').textContent = s.name;
-      row.querySelector('small').textContent = s.pts.length + ' points · ' + hectares(s.pts).toFixed(2) + ' ha';
+      row.querySelector('small').textContent = s.pts.length + ' points · ' + acresText(hectares(s.pts));
       row.querySelectorAll('.mini')[0].onclick = function () {
         W = { pts: copyPts(s.pts), parts: [], name: s.name, dirty: false, created: s.t };
         preview = null; selPt = -1; showPointBar(); selShape = -1; showShapeBar(); persistAll(); render(); closeSheets();
@@ -929,7 +947,7 @@ window.herdBoot = function () {
     $('sendInfo').innerHTML = '';
     var b = document.createElement('b'); b.textContent = label;
     $('sendInfo').appendChild(b);
-    $('sendInfo').appendChild(document.createTextNode(' · ' + W.pts.length + ' points · ' + hectares(W.pts).toFixed(2) + ' ha'));
+    $('sendInfo').appendChild(document.createTextNode(' · ' + W.pts.length + ' points · ' + acresText(hectares(W.pts))));
     showSheet('sheetSend');
   };
 
@@ -942,7 +960,7 @@ window.herdBoot = function () {
     $('splitSrcInfo').innerHTML = '';
     var b = document.createElement('b'); b.textContent = name;
     $('splitSrcInfo').appendChild(b);
-    $('splitSrcInfo').appendChild(document.createTextNode(' · ' + pts.length + ' points · ' + hectares(pts).toFixed(2) + ' ha'));
+    $('splitSrcInfo').appendChild(document.createTextNode(' · ' + pts.length + ' points · ' + acresText(hectares(pts))));
   }
   function setModeUI() {
     $('mode-blocks').classList.toggle('on', splitMode === 'blocks');
@@ -996,8 +1014,8 @@ window.herdBoot = function () {
       inp.style.borderLeftColor = COLORS[i % COLORS.length];
       box.appendChild(inp);
     });
-    var ha = (area(local) / 10000 / result.length).toFixed(2);
-    $('splitInfo').textContent = result.length + ' paddocks · about ' + ha + ' ha each' + (tight ? ' (some edges are tight: try another number)' : '');
+    var ha = area(local) / 10000 / result.length;
+    $('splitInfo').textContent = result.length + ' paddocks · about ' + acresText(ha) + ' each' + (tight ? ' (some edges are tight: try another number)' : '');
     $('btn-saveall').hidden = false;
   };
 
@@ -1276,7 +1294,7 @@ window.herdBoot = function () {
       g.fillStyle = '#8fb173'; g.font = '600 40px -apple-system, sans-serif';
       g.fillText('Set: ' + when, 80, y); y += 50;
       g.fillStyle = '#cfe0d5';
-      g.fillText((preview ? preview.length + ' paddocks · ' : '') + ha.toFixed(2) + ' ha', 80, y);
+      g.fillText((preview ? preview.length + ' paddocks · ' : '') + acresText(ha), 80, y);
       g.fillStyle = 'rgba(241,247,243,.7)'; g.font = '700 30px -apple-system, sans-serif';
       g.fillText('HerdGuard', 50, PIC_H - 50);
       return cv;
