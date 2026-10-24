@@ -1,10 +1,10 @@
 /* Offline support.
    - App files and Leaflet are cached on install.
    - Satellite map tiles are cached as you look at them, and in bulk by "Save map for offline". */
-var SHELL_CACHE = 'herdguard-shell-v5';
-var TILE_CACHE = 'herdguard-tiles-v1';
+var SHELL_CACHE = 'herdguard-shell-v6';
+var TILE_CACHE = 'herdguard-tiles-v2';
 var MAX_TILES = 3000;
-var SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
+var SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'get.html'];
 var LIBS = ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];
 
 self.addEventListener('install', function (e) {
@@ -28,19 +28,30 @@ self.addEventListener('activate', function (e) {
   );
 });
 
-function cacheFirst(req, name, limit) {
-  return caches.open(name).then(function (c) {
+// Tiles: serve from the cache, but a request that needs readable data (CORS, used for the picture)
+// is never answered with an unreadable cached copy.
+function tileRequest(req) {
+  return caches.open(TILE_CACHE).then(function (c) {
     return c.match(req).then(function (hit) {
-      if (hit) return hit;
+      if (hit && !(req.mode === 'cors' && hit.type === 'opaque')) return hit;
       return fetch(req).then(function (res) {
         if (res.ok || res.type === 'opaque') {
           c.put(req, res.clone());
-          if (limit) c.keys().then(function (keys) {
-            if (keys.length > limit) keys.slice(0, keys.length - limit).forEach(function (k) { c.delete(k); });
+          c.keys().then(function (keys) {
+            if (keys.length > MAX_TILES) keys.slice(0, keys.length - MAX_TILES).forEach(function (k) { c.delete(k); });
           });
         }
         return res;
       });
+    });
+  }).catch(function () { return caches.match(req); });
+}
+
+function cacheFirst(req, name) {
+  return caches.open(name).then(function (c) {
+    return c.match(req).then(function (hit) {
+      if (hit) return hit;
+      return fetch(req).then(function (res) { if (res.ok || res.type === 'opaque') c.put(req, res.clone()); return res; });
     });
   }).catch(function () { return caches.match(req); });
 }
@@ -57,8 +68,8 @@ self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
-  if (url.hostname === 'server.arcgisonline.com') { e.respondWith(cacheFirst(req, TILE_CACHE, MAX_TILES)); return; }
-  if (url.hostname === 'unpkg.com') { e.respondWith(cacheFirst(req, SHELL_CACHE, 0)); return; }
+  if (url.hostname === 'server.arcgisonline.com') { e.respondWith(tileRequest(req)); return; }
+  if (url.hostname === 'unpkg.com') { e.respondWith(cacheFirst(req, SHELL_CACHE)); return; }
   if (url.origin !== location.origin) return;
   e.respondWith(networkFirst(req));
 });

@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css'">
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   [hidden]{display:none!important}
@@ -220,9 +220,22 @@
 
 <div id="toast"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-(function () {
+(function tryLeaflet(list) {
+  if (!list.length) { document.getElementById('toast').textContent = 'Map could not load. Check internet.'; document.getElementById('toast').style.display = 'block'; return; }
+  var s = document.createElement('script');
+  s.src = list[0];
+  s.onload = function () { if (window.L && window.herdBoot) window.herdBoot(); else tryLeaflet(list.slice(1)); };
+  s.onerror = function () { tryLeaflet(list.slice(1)); };
+  document.head.appendChild(s);
+})([
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
+]);
+</script>
+<script>
+window.herdBoot = function () {
   'use strict';
   var K_WORK = 'herdguard.work', K_OLD = 'herdguard.points', K_SAVED = 'herdguard.saved',
       K_MASTER = 'herdguard.master', K_TAP = 'herdguard.tap', K_BACKUP = 'herdguard.backup';
@@ -1151,7 +1164,7 @@
   $('btn-close6').onclick = closeSheets;
 
   // ---------- picture for sharing: 4:5, satellite background, name and date ----------
-  var PIC_W = 1080, PIC_H = 1350, picCanvas = null;
+  var PIC_W = 1080, PIC_H = 1350, picCanvas = null, picFailed = 0;
   function mercX(lng, z) { return (lng + 180) / 360 * 256 * Math.pow(2, z); }
   function mercY(lat, z) { var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z); }
   function loadImg(url) {
@@ -1171,29 +1184,35 @@
       minLat = Math.min(minLat, p[0]); maxLat = Math.max(maxLat, p[0]);
       minLng = Math.min(minLng, p[1]); maxLng = Math.max(maxLng, p[1]);
     }); });
-    var z = 17;
-    for (; z > 1; z--) {
-      var w = mercX(maxLng, z) - mercX(minLng, z), h = mercY(minLat, z) - mercY(maxLat, z);
-      if (w <= PIC_W * 0.7 && h <= PIC_H * 0.7) break;
-    }
-    var ox = (mercX(minLng, z) + mercX(maxLng, z)) / 2 - PIC_W / 2;
-    var oy = (mercY(maxLat, z) + mercY(minLat, z)) / 2 - PIC_H / 2;
+    // zoom so the land fills about 80% of the frame (never less than 70%), with no whole-step limit
+    function bx(lng) { return (lng + 180) / 360 * 256; }
+    function by(lat) { var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256; }
+    var w1 = bx(maxLng) - bx(minLng), h1 = by(minLat) - by(maxLat);
+    var zf = Math.log(Math.min(PIC_W * 0.8 / Math.max(w1, 1e-9), PIC_H * 0.8 / Math.max(h1, 1e-9))) / Math.LN2;
+    zf = Math.max(1, Math.min(20, zf));
+    var S = Math.pow(2, zf);                                   // pixels per map unit
+    var cxw = (bx(minLng) + bx(maxLng)) / 2, cyw = (by(maxLat) + by(minLat)) / 2;
+    var ox = cxw - PIC_W / (2 * S), oy = cyw - PIC_H / (2 * S);
     var cv = document.createElement('canvas'); cv.width = PIC_W; cv.height = PIC_H;
     var g = cv.getContext('2d');
     g.fillStyle = '#0a140e'; g.fillRect(0, 0, PIC_W, PIC_H);
     var jobs = [];
+    picFailed = 0;
     if (withTiles) {
-      var n = Math.pow(2, z);
-      for (var tx = Math.floor(ox / 256); tx <= Math.floor((ox + PIC_W) / 256); tx++)
-        for (var ty = Math.floor(oy / 256); ty <= Math.floor((oy + PIC_H) / 256); ty++) {
-          if (ty < 0 || ty >= n) continue;
-          var wx = ((tx % n) + n) % n;
+      // photos come from the highest sharp level (17) and are enlarged beyond it
+      var zt = Math.min(Math.floor(zf), 17), tile = 256 / Math.pow(2, zt), nt = Math.pow(2, zt);
+      var tx0 = Math.floor(ox / tile), tx1 = Math.floor((ox + PIC_W / S) / tile);
+      var ty0 = Math.floor(oy / tile), ty1 = Math.floor((oy + PIC_H / S) / tile);
+      for (var tx = tx0; tx <= tx1; tx++)
+        for (var ty = ty0; ty <= ty1; ty++) {
+          if (ty < 0 || ty >= nt) continue;
+          var wx = ((tx % nt) + nt) % nt;
           (function (x, y, url) {
-            jobs.push(loadImg(url).then(function (im) { g.drawImage(im, x, y, 256, 256); }, function () {}));
-          })(tx * 256 - ox, ty * 256 - oy, TILE.replace('{z}', z).replace('{y}', ty).replace('{x}', wx));
+            jobs.push(loadImg(url).then(function (im) { g.drawImage(im, x, y, tile * S, tile * S); }, function () { picFailed++; }));
+          })((tx * tile - ox) * S, (ty * tile - oy) * S, TILE.replace('{z}', zt).replace('{y}', ty).replace('{x}', wx));
         }
     }
-    function XY(p) { return [mercX(p[1], z) - ox, mercY(p[0], z) - oy]; }
+    function XY(p) { return [(bx(p[1]) - ox) * S, (by(p[0]) - oy) * S]; }
     function path(poly) {
       g.beginPath();
       poly.forEach(function (p, i) { var q = XY(p); if (i) g.lineTo(q[0], q[1]); else g.moveTo(q[0], q[1]); });
@@ -1254,6 +1273,7 @@
     toast('Making picture...');
     buildPicture(inc, true).then(function (cv) {
       picCanvas = cv;
+      if (picFailed) toast(picFailed + ' photo tiles did not load. Make it again when online');
       if (!showPicture(cv)) {                                   // photos blocked: make it without the background
         return buildPicture(inc, false).then(function (plain) { picCanvas = plain; showPicture(plain); toast('Photos unavailable, picture made without them'); });
       }
@@ -1307,7 +1327,7 @@
   if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
-})();
+};
 </script>
 </body>
 </html>
