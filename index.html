@@ -141,6 +141,7 @@
 <div id="sheetSend" class="sheet glass">
   <div class="title">Send to collar</div>
   <p class="info" id="sendInfo"></p>
+  <label class="check"><input type="checkbox" id="chkHerd"> Send to whole herd (all collars nearby)</label>
   <button class="btn go" id="btn-send">Send this shape</button>
   <button class="btn" id="btn-copy">Copy points</button>
   <button class="btn" id="btn-close1">Close</button>
@@ -1030,18 +1031,28 @@ window.herdBoot = function () {
 
   $('btn-send').onclick = function () {
     var native = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-    if (native) {                                              // inside the app: send in the background
-      var body = new URLSearchParams(); body.set('geofence', text(W.pts));
+    if (native) {                                              // inside the app: send and read the collar's answer
+      var body = new URLSearchParams();
+      body.set('geofence', text(W.pts));
+      body.set('herd', $('chkHerd').checked ? '1' : '0');
       toast('Sending to collar...');
-      fetch('http://192.168.4.1/save', { method: 'POST', mode: 'no-cors', body: body })
-        .then(function () { toast('Sent. Check the collar screen'); closeSheets(); })
-        .catch(function () { toast('Not on the collar Wi-Fi yet'); });
+      fetch('http://192.168.4.1/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString()
+      }).then(function (r) {
+        if (r.ok) { toast('Collar accepted it'); closeSheets(); return; }
+        return r.text().then(function (t) { toast((t || 'Collar rejected it').slice(0, 90)); });
+      }).catch(function () {
+        toast("Can't reach the collar. Join HerdGuard_ Wi-Fi. If its setup window closed, hold BOOT 1 s on the collar");
+      });
       return;
     }
     var f = document.createElement('form');                    // in a browser: submit to the collar page
     f.method = 'POST'; f.action = 'http://192.168.4.1/save'; f.target = '_blank';
     var t = document.createElement('textarea'); t.name = 'geofence'; t.value = text(W.pts);
-    f.appendChild(t); document.body.appendChild(f); f.submit();
+    var hd = document.createElement('input'); hd.type = 'hidden'; hd.name = 'herd'; hd.value = $('chkHerd').checked ? '1' : '0';
+    f.appendChild(t); f.appendChild(hd); document.body.appendChild(f); f.submit();
     setTimeout(function () { f.remove(); }, 1000);
   };
 
