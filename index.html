@@ -175,6 +175,12 @@
 
 <div id="sheetExport" class="sheet glass">
   <div class="title">Download picture</div>
+  <div class="seg" id="ratioSeg" style="grid-template-columns:repeat(4,1fr)">
+    <button data-r="4:5" class="on">4:5</button>
+    <button data-r="9:16">9:16</button>
+    <button data-r="1:1">1:1</button>
+    <button data-r="3:4">3:4</button>
+  </div>
   <label class="check"><input type="checkbox" id="expMaster" checked> Include master land</label>
   <button class="btn go" id="btn-make-pic">Make picture</button>
   <div id="picBox"></div>
@@ -1175,7 +1181,15 @@ window.herdBoot = function () {
   $('btn-close6').onclick = closeSheets;
 
   // ---------- picture for sharing: 4:5, satellite background, name and date ----------
-  var PIC_W = 1080, PIC_H = 1350, picCanvas = null, picFailed = 0;
+  var PIC_W = 1080, PIC_H = 1350, picCanvas = null, picFailed = 0, picRatio = '4:5';
+  var PIC_SIZES = { '4:5': [1080, 1350], '9:16': [1080, 1920], '1:1': [1080, 1080], '3:4': [1080, 1440] };
+  document.querySelectorAll('#ratioSeg button').forEach(function (b) {
+    b.onclick = function () {
+      picRatio = b.dataset.r;
+      document.querySelectorAll('#ratioSeg button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      $('picBox').innerHTML = ''; picCanvas = null; $('btn-save-pic').hidden = true;
+    };
+  });
   function mercX(lng, z) { return (lng + 180) / 360 * 256 * Math.pow(2, z); }
   function mercY(lat, z) { var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z); }
   function loadImg(url) {
@@ -1185,6 +1199,8 @@ window.herdBoot = function () {
     });
   }
   function buildPicture(includeMaster, withTiles) {
+    var dims = PIC_SIZES[picRatio] || PIC_SIZES['4:5'];
+    PIC_W = dims[0]; PIC_H = dims[1];
     var names = Array.prototype.map.call(document.querySelectorAll('#padNames .padIn'), function (i) { return i.value; });
     var list = preview ? preview.slice() : allShapes().slice();
     var regions = list.slice();
@@ -1295,7 +1311,7 @@ window.herdBoot = function () {
   $('btn-save-pic').onclick = function () {
     if (!picCanvas) return;
     var data = picCanvas.toDataURL('image/png');
-    var fname = 'herdguard-' + ((W.name || 'land').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'land') + '.png';
+    var fname = 'herdguard-' + ((W.name || 'land').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'land') + '-' + picRatio.replace(':', 'x') + '.png';
     var Cap = window.Capacitor, native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
     if (native && Cap.Plugins.Filesystem && Cap.Plugins.Share) {
       Cap.Plugins.Filesystem.writeFile({ path: fname, data: data.split(',')[1], directory: 'CACHE' })
