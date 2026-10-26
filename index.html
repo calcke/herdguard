@@ -1477,7 +1477,7 @@ window.herdBoot = function () {
     }
     // coordinate panel at the bottom: 4 points per row
     var lineH = 30, rows = 0;
-    items.forEach(function (it) { rows += 1 + Math.ceil(it.pts.length / 4); });
+    items.forEach(function (it) { rows += 1 + Math.ceil(it.pts.length / 3); });
     var panelH = Math.min(PH * 0.45, 70 + rows * lineH + 24);
     var mapH = PH - panelH - 24;
     var view = pictureView(bb, PW, mapH);
@@ -1531,7 +1531,7 @@ window.herdBoot = function () {
       if (W.name) { g.fillStyle = '#f1f7f3'; g.font = '800 40px -apple-system, sans-serif'; g.fillText(W.name.slice(0, 22), 62, y); y += 42; }
       g.fillStyle = '#8fb173'; g.font = '600 26px -apple-system, sans-serif'; g.fillText(when, 62, y); y += 34;
       g.fillStyle = '#cfe0d5'; g.fillText((preview ? preview.length + ' paddocks · ' : '') + acresText(ha), 62, y);
-      // coordinates at the bottom, so the land can be reloaded from the picture alone
+      // coordinates at the bottom (3 per row), so the land can be reloaded from the picture alone
       var top = PH - panelH - 12;
       g.fillStyle = 'rgba(10,20,15,.8)'; rr(g, 36, top, PW - 72, panelH, 26); g.fill();
       var ly = top + 46;
@@ -1541,10 +1541,10 @@ window.herdBoot = function () {
         ly += 26;
         g.fillStyle = '#f1f7f3'; g.font = '700 21px -apple-system, sans-serif';
         g.fillText(it.label, 62, ly); ly += 6;
-        for (var k = 0; k < it.pts.length; k += 4) {
+        for (var k = 0; k < it.pts.length; k += 3) {
           ly += lineH;
-          var row = it.pts.slice(k, k + 4).map(function (p) { return p[0].toFixed(5) + ', ' + p[1].toFixed(5); }).join('     ');
-          g.fillStyle = '#cfe0d5'; g.font = '19px monospace';
+          var row = it.pts.slice(k, k + 3).map(function (p) { return p[0].toFixed(5) + ', ' + p[1].toFixed(5); }).join('    ');
+          g.fillStyle = '#cfe0d5'; g.font = '18px monospace';
           g.fillText(row, 62, ly);
         }
       });
@@ -1622,6 +1622,8 @@ window.herdBoot = function () {
   if (W.pts.length >= 2) map.fitBounds(W.pts, { padding: [60, 60], maxZoom: 18 });
   else if (master) map.fitBounds(master.pts, { padding: [60, 60], maxZoom: 18 });
   if (restoredFromBackup) toast('Restored from automatic backup');
+  var lastBk = load(K_BACKUP, null);                                   // show when the last automatic backup was made
+  if (lastBk && lastBk.t && $('backupInfo')) $('backupInfo').textContent = 'Automatic backup on this phone · ' + new Date(lastBk.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
   // Android download: from apk-config.js; hidden inside the installed app itself
   if (window.hgShowApk && window.hgShowApk()) {
