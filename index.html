@@ -101,6 +101,14 @@
   #pointBar .mini,#shapeBar .mini{height:38px;padding:0 12px}
   .sheet button:active,#bar button:active,.ic:active,.mini:active,.stepper button:active{transform:scale(.94)}
 
+  #zoomPad{position:absolute;right:12px;top:50%;transform:translateY(-50%);z-index:500;display:flex;flex-direction:column;gap:8px}
+  .zb{width:48px;height:48px;border-radius:50%;cursor:pointer;background:rgba(10,20,15,.72);color:#f1f7f3;font:300 26px/1 -apple-system,sans-serif;
+    border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  .zb:active{transform:scale(.92)}
+  #nudge{position:absolute;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 140px);z-index:650;
+    display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,52px);gap:6px;padding:8px;border-radius:18px}
+  #nudge .nb{border:0;border-radius:14px;background:rgba(255,255,255,.12);color:#f1f7f3;font:700 16px -apple-system,sans-serif;cursor:pointer}
+  #nudge .nb:active{transform:scale(.92)}
   #toast{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 80px);z-index:700;
     background:rgba(10,20,15,.8);border-radius:10px;padding:8px 12px;font-size:13px;font-weight:600;
     white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis;display:none}
@@ -122,6 +130,19 @@
   <button class="ic" id="b-saved" aria-label="Saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4z"/></svg></button>
   <button class="ic" id="locate" aria-label="Follow my GPS"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
   <a class="ic" id="apkTop" href="get.html" hidden aria-label="Download Android app"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg></a>
+</div>
+
+<div id="zoomPad">
+  <button class="zb" id="zin" aria-label="Zoom in">+</button>
+  <button class="zb" id="zout" aria-label="Zoom out">−</button>
+</div>
+
+<div id="nudge" class="glass" hidden>
+  <button class="nb" data-dir="up" style="grid-area:1/2">▲</button>
+  <button class="nb" data-dir="left" style="grid-area:2/1">◀</button>
+  <button class="nb" id="nstep" style="grid-area:2/2;font-size:12px">0.5 m</button>
+  <button class="nb" data-dir="right" style="grid-area:2/3">▶</button>
+  <button class="nb" data-dir="down" style="grid-area:3/2">▼</button>
 </div>
 
 <div id="bar" class="glass">
@@ -187,9 +208,8 @@
     <button data-r="3:4">3:4</button>
   </div>
   <label class="check"><input type="checkbox" id="expMaster" checked> Include master land</label>
-  <button class="btn go" id="btn-make-pic">Make picture</button>
+  <button class="btn go" id="btn-make-pic">Download</button>
   <div id="picBox"></div>
-  <button class="btn go" id="btn-save-pic" hidden>Save picture</button>
   <button class="btn" id="btn-close5">Close</button>
 </div>
 
@@ -258,7 +278,7 @@ window.herdBoot = function () {
   'use strict';
   var K_WORK = 'herdguard.work', K_OLD = 'herdguard.points', K_SAVED = 'herdguard.saved',
       K_MASTER = 'herdguard.master', K_TAP = 'herdguard.tap', K_BACKUP = 'herdguard.backup';
-  var MAX = 20, MIN = 3, WALK_STEP = 8, WALK_ACC = 15;
+  var MAX = 20, MIN = 3, WALK_STEP = 20, WALK_ACC = 15, WALK_MAX = 13, WALK_TURN = 45;
   var TILE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   var COLORS = ['#a3e635', '#38bdf8', '#fbbf24', '#f472b6', '#c084fc', '#34d399', '#fb923c', '#60a5fa', '#f87171', '#facc15', '#2dd4bf', '#e879f9'];
   var SAGE = '#8fb173';
@@ -286,6 +306,7 @@ window.herdBoot = function () {
   var splitSrc = master ? 'master' : 'figure';
   var splitMode = 'blocks';
   var splitSeed = 0;      // 0 = standard split; Reshuffle picks a new seed
+  var nudgeM = 0.5, NUDGE_STEPS = [0.5, 2, 5, 10];
 
   // ---------- helpers ----------
   function toast(msg, action) {
@@ -314,8 +335,8 @@ window.herdBoot = function () {
   function tileTemplate() { return usingMapbox() ? MB_TILES + '?access_token=' + encodeURIComponent(mbToken) : TILE; }
   function tileMaxNative() { return usingMapbox() ? 20 : 19; }
 
-  var map = L.map('map', { zoomControl: false, attributionControl: false, maxZoom: 20 }).setView([-0.3976, 36.9612], 17);
-  var baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 20, maxNativeZoom: tileMaxNative() }).addTo(map);
+  var map = L.map('map', { zoomControl: false, attributionControl: false, maxZoom: 22 }).setView([-0.3976, 36.9612], 17);
+  var baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 22, maxNativeZoom: tileMaxNative() }).addTo(map);
   var shapes = L.layerGroup().addTo(map);
   var meLayer = L.layerGroup().addTo(map);
 
@@ -716,10 +737,16 @@ window.herdBoot = function () {
     persistAll(); render();
   }
 
-  function addPoint(lat, lng) {
-    if (W.pts.length >= MAX) return toast('Max ' + MAX + ' points');
+  // quiet = added automatically (walk mode): no pop-up for every GPS fix, one warning per walk at most
+  var walkWarned = false;
+  function addPoint(lat, lng, quiet) {
+    if (W.pts.length >= MAX) { if (!quiet) toast('Max ' + MAX + ' points'); return false; }
     var cand = W.pts.concat([[round6(lat), round6(lng)]]);
-    if (blocked(cand)) return toast('That point would cross another shape');
+    if (blocked(cand)) {
+      if (!quiet) toast('That point would cross another shape');
+      else if (!walkWarned) { walkWarned = true; toast('Walk stopped: the next corner would cross another shape'); walk = false; updateGpsUI(); }
+      return false;
+    }
     W.pts.push([round6(lat), round6(lng)]);
     fresh = W.pts.length - 1;
     vib(15);
@@ -748,6 +775,47 @@ window.herdBoot = function () {
     return poly.map(function (p) { return '{' + p[0].toFixed(6) + ', ' + p[1].toFixed(6) + '},'; }).join('\n');
   }
 
+  // ---------- nudging a selected point with the arrows ----------
+  // moves the selected point; while a finger is held it redraws without saving each step
+  var holdT = null, holdI = null, holdMoved = false;
+  function nudge(dxm, dym, hold) {
+    if (selPt < 0 || selPt >= W.pts.length) return false;
+    var p = W.pts[selPt], cand = W.pts.slice();
+    cand[selPt] = [round6(p[0] + dym / 111320), round6(p[1] + dxm / (111320 * Math.cos(p[0] * Math.PI / 180)))];
+    if (blocked(cand)) { toast('That move would cross the outline'); return false; }
+    W.pts = cand;
+    if (hold) { W.dirty = true; render(); } else changed();
+    return true;
+  }
+  function stopHold() {
+    clearTimeout(holdT); clearInterval(holdI); holdT = holdI = null;
+    if (holdMoved) { holdMoved = false; changed(); }           // the whole hold is one undo step
+  }
+  function startHold(dir) {
+    stopHold();
+    var step = function () {
+      var m = nudgeM;
+      var dx = dir === 'left' ? -m : dir === 'right' ? m : 0;
+      var dy = dir === 'up' ? m : dir === 'down' ? -m : 0;
+      if (nudge(dx, dy, true)) holdMoved = true;
+      else { clearTimeout(holdT); clearInterval(holdI); holdT = holdI = null; }
+    };
+    step();
+    holdT = setTimeout(function () { holdI = setInterval(step, 80); }, 350);   // repeats after a short pause
+  }
+  document.querySelectorAll('#nudge .nb[data-dir]').forEach(function (b) {
+    b.addEventListener('pointerdown', function (e) { e.preventDefault(); startHold(b.dataset.dir); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) {
+      b.addEventListener(ev, stopHold);
+    });
+    b.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+  });
+  $('nstep').onclick = function () {
+    nudgeM = NUDGE_STEPS[(NUDGE_STEPS.indexOf(nudgeM) + 1) % NUDGE_STEPS.length];
+    $('nstep').textContent = nudgeM + ' m';
+  };
+  function showNudge() { $('nudge').hidden = selPt < 0; $('nstep').textContent = nudgeM + ' m'; }
+
   // ---------- selecting and deleting whole shapes ----------
   function showShapeBar() {
     var bar = $('shapeBar');
@@ -774,6 +842,7 @@ window.herdBoot = function () {
   function showPointBar() {
     $('pointLbl').textContent = 'Point ' + (selPt + 1) + ' selected';
     $('pointBar').hidden = selPt < 0;
+    showNudge();
   }
   function selectPoint(i) { selPt = i; closeSheets(); showPointBar(); render(); }
   function clearSelection() { selPt = -1; showPointBar(); render(); }
@@ -874,7 +943,7 @@ window.herdBoot = function () {
   // ---------- map source ----------
   function setBaseLayer() {
     if (baseLayer) map.removeLayer(baseLayer);
-    baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 20, maxNativeZoom: tileMaxNative() }).addTo(map);
+    baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 22, maxNativeZoom: tileMaxNative() }).addTo(map);
   }
   function updateSrcUI() {
     document.querySelectorAll('#srcSeg button').forEach(function (b) { b.classList.toggle('on', b.dataset.src === mapSource); });
@@ -887,18 +956,23 @@ window.herdBoot = function () {
   $('mbToken').onchange = function () { mbToken = this.value.trim(); store(K_MBTOKEN, mbToken); setBaseLayer(); toast(mbToken ? 'Sharper map on' : 'Add your Mapbox key'); };
 
   // ---------- offline map tiles ----------
-  function tileList(b) {
-    var out = [];
-    var top = Math.min(19, tileMaxNative());
-    for (var z = 15; z <= top; z++) {
-      var n = Math.pow(2, z);
-      var x0 = Math.floor((b.getWest() + 180) / 360 * n), x1 = Math.floor((b.getEast() + 180) / 360 * n);
-      var la1 = b.getNorth() * Math.PI / 180, la2 = b.getSouth() * Math.PI / 180;
-      var y0 = Math.floor((1 - Math.log(Math.tan(la1) + 1 / Math.cos(la1)) / Math.PI) / 2 * n);
-      var y1 = Math.floor((1 - Math.log(Math.tan(la2) + 1 / Math.cos(la2)) / Math.PI) / 2 * n);
-      for (var x = x0; x <= x1; x++)
-        for (var y = y0; y <= y1; y++)
-          out.push(tileTemplate().replace('{z}', z).replace('{y}', y).replace('{x}', x));
+  function tileLevel(b, z) {
+    var out = [], n = Math.pow(2, z);
+    var x0 = Math.floor((b.getWest() + 180) / 360 * n), x1 = Math.floor((b.getEast() + 180) / 360 * n);
+    var la1 = b.getNorth() * Math.PI / 180, la2 = b.getSouth() * Math.PI / 180;
+    var y0 = Math.floor((1 - Math.log(Math.tan(la1) + 1 / Math.cos(la1)) / Math.PI) / 2 * n);
+    var y1 = Math.floor((1 - Math.log(Math.tan(la2) + 1 / Math.cos(la2)) / Math.PI) / 2 * n);
+    for (var x = x0; x <= x1; x++)
+      for (var y = y0; y <= y1; y++)
+        out.push(tileTemplate().replace('{z}', z).replace('{y}', y).replace('{x}', x));
+    return out;
+  }
+  // sharpest levels first; lower levels are added while they still fit the limit
+  function tileListFit(b, limit) {
+    var top = Math.min(19, tileMaxNative()), out = [];
+    for (var z = top; z >= 15; z--) {
+      var part = tileLevel(b, z);
+      if (out.length + part.length <= limit) out = out.concat(part);
     }
     return out;
   }
@@ -907,8 +981,8 @@ window.herdBoot = function () {
     if (master) all = all.concat(master.pts);
     allShapes().forEach(function (s) { all = all.concat(s); });
     var b = all.length >= 3 ? L.latLngBounds(all).pad(0.25) : map.getBounds();
-    var list = tileList(b);
-    if (list.length > 900) return toast('Area too big (' + list.length + ' map tiles). Use a smaller field.');
+    var list = tileListFit(b, 900);
+    if (!list.length) return toast('Area too big to save. Use a smaller field.');
     if (!('serviceWorker' in navigator)) return toast('Offline maps need the web version');
     var btn = $('btn-offline'), info = $('offlineInfo');
     btn.disabled = true;
@@ -956,6 +1030,9 @@ window.herdBoot = function () {
   };
 
   $('b-del').onclick = deleteSelectedShape;
+
+  $('zin').onclick = function () { map.zoomIn(1); };
+  $('zout').onclick = function () { map.zoomOut(1); };
 
   $('b-add').onclick = function () { closeSheets(); var c = map.getCenter(); addPoint(c.lat, c.lng); };
 
@@ -1215,7 +1292,13 @@ window.herdBoot = function () {
 
   // ---------- GPS: follow me, and walk-to-draw ----------
   var follow = false, walk = false, watchId = null, lastWalk = null, lastFix = null, warnAt = 0, meMarker = null;
+  var walkPrev = null, walkCount = 0;
 
+  function bearingOf(a, b) {
+    var dy = b[0] - a[0], dx = (b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180);
+    return (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+  }
+  function angleBetween(h1, h2) { var d = Math.abs(h1 - h2) % 360; return d > 180 ? 360 - d : d; }
   function metresBetween(a, b) {
     var dy = (b[0] - a[0]) * 111320;
     var dx = (b[1] - a[1]) * 111320 * Math.cos(a[0] * Math.PI / 180);
@@ -1247,10 +1330,24 @@ window.herdBoot = function () {
         if (Date.now() - warnAt > 8000) { warnAt = Date.now(); toast('GPS weak (' + Math.round(acc) + ' m), waiting'); }
         return;
       }
-      if (!lastWalk || metresBetween(lastWalk, ll) >= WALK_STEP) {
+      var placed = false;
+      if (!lastWalk) placed = true;                              // first corner: where you start
+      else {
+        var since = metresBetween(lastWalk, ll), turned = false;
+        if (walkPrev && metresBetween(walkPrev, ll) >= 4 && since >= 8) {
+          turned = angleBetween(bearingOf(lastWalk, walkPrev), bearingOf(walkPrev, ll)) >= WALK_TURN;
+        }
+        placed = since >= WALK_STEP || turned;                   // far enough, or you just turned a corner
+      }
+      walkPrev = ll;
+      if (placed) {
         var before = W.pts.length;
-        addPoint(ll[0], ll[1]);
-        if (W.pts.length > before) lastWalk = ll;
+        addPoint(ll[0], ll[1], true);
+        if (W.pts.length > before) { lastWalk = ll; walkCount++; }
+      }
+      if (walkCount >= WALK_MAX) {
+        walk = false; if (!follow) stopWatch(); updateGpsUI();
+        toast(WALK_MAX + ' corners placed. Adjust them or save');
       }
     }
   }
@@ -1269,8 +1366,9 @@ window.herdBoot = function () {
   $('b-walk').onclick = function () {
     walk = !walk;
     if (walk) {
-      lastWalk = null; closeSheets(); startWatch();
-      toast('Walking: a corner every ' + WALK_STEP + ' m');
+      lastWalk = null; walkPrev = null; walkCount = 0; follow = true; walkWarned = false;
+      closeSheets(); startWatch();
+      toast('Walk: corners are added as you go. Up to ' + WALK_MAX);
     } else {
       if (!follow) stopWatch();
       toast('Walk stopped');
@@ -1316,58 +1414,78 @@ window.herdBoot = function () {
   $('btn-coords').onclick = function () { showSheet('sheetCoords'); };
   $('btn-close6').onclick = closeSheets;
 
-  // ---------- picture for sharing: 4:5, satellite background, name and date ----------
-  var PIC_W = 1080, PIC_H = 1350, picCanvas = null, picFailed = 0, picRatio = '4:5';
+  // ---------- download picture (4:5, 9:16, 1:1, 3:4) ----------
   var PIC_SIZES = { '4:5': [1080, 1350], '9:16': [1080, 1920], '1:1': [1080, 1080], '3:4': [1080, 1440] };
+  var picRatio = '4:5', picFailed = 0;
   document.querySelectorAll('#ratioSeg button').forEach(function (b) {
     b.onclick = function () {
       picRatio = b.dataset.r;
       document.querySelectorAll('#ratioSeg button').forEach(function (x) { x.classList.toggle('on', x === b); });
-      $('picBox').innerHTML = ''; picCanvas = null; $('btn-save-pic').hidden = true;
+      $('picBox').innerHTML = '';
     };
   });
-  function mercX(lng, z) { return (lng + 180) / 360 * 256 * Math.pow(2, z); }
-  function mercY(lat, z) { var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256 * Math.pow(2, z); }
+  function bx(lng) { return (lng + 180) / 360 * 256; }
+  function by(lat) { var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256; }
+  // zoom so the land fills about 80% of the map area, centred in that area
+  function pictureView(bb, PW, mapH) {
+    var w1 = bx(bb.maxLng) - bx(bb.minLng), h1 = by(bb.minLat) - by(bb.maxLat);
+    var zf = Math.log(Math.min(PW * 0.8 / Math.max(w1, 1e-9), mapH * 0.8 / Math.max(h1, 1e-9))) / Math.LN2;
+    zf = Math.max(1, Math.min(20, zf));
+    var S = Math.pow(2, zf);
+    var cx = (bx(bb.minLng) + bx(bb.maxLng)) / 2, cy = (by(bb.maxLat) + by(bb.minLat)) / 2;
+    return { S: S, zf: zf, ox: cx - PW / (2 * S), oy: cy - mapH / (2 * S) };
+  }
+  function rr(g, x, y, w, h, r) {
+    g.beginPath(); g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  }
   function loadImg(url) {
     return new Promise(function (resolve, reject) {
       var im = new Image(); im.crossOrigin = 'anonymous';
       im.onload = function () { resolve(im); }; im.onerror = reject; im.src = url;
     });
   }
+
   function buildPicture(includeMaster, withTiles) {
-    var dims = PIC_SIZES[picRatio] || PIC_SIZES['4:5'];
-    PIC_W = dims[0]; PIC_H = dims[1];
+    var dims = PIC_SIZES[picRatio] || PIC_SIZES['4:5'], PW = dims[0], PH = dims[1];
     var names = Array.prototype.map.call(document.querySelectorAll('#padNames .padIn'), function (i) { return i.value; });
-    var list = preview ? preview.slice() : allShapes().slice();
-    var regions = list.slice();
-    if (includeMaster && master) regions.push(master.pts);
-    if (!regions.length) return Promise.reject(new Error('nothing'));
-    var minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
-    regions.forEach(function (r) { r.forEach(function (p) {
-      minLat = Math.min(minLat, p[0]); maxLat = Math.max(maxLat, p[0]);
-      minLng = Math.min(minLng, p[1]); maxLng = Math.max(maxLng, p[1]);
+    // only what is drawn decides the framing
+    var items = [];
+    if (preview) preview.forEach(function (q, i) { items.push({ label: names[i] || ('Paddock ' + (i + 1)), pts: q, kind: 'paddock', i: i }); });
+    else allShapes().forEach(function (sh, i) { items.push({ label: 'Shape ' + (i + 1), pts: sh, kind: 'shape' }); });
+    if (includeMaster && master) items.push({ label: master.name, pts: master.pts, kind: 'master' });
+    items = items.filter(function (it) { return it.pts.length >= 3; });
+    if (!items.length) return Promise.reject(new Error('Draw a shape first'));
+    var bb = { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity };
+    items.forEach(function (it) { it.pts.forEach(function (p) {
+      bb.minLat = Math.min(bb.minLat, p[0]); bb.maxLat = Math.max(bb.maxLat, p[0]);
+      bb.minLng = Math.min(bb.minLng, p[1]); bb.maxLng = Math.max(bb.maxLng, p[1]);
     }); });
-    // zoom so the land fills about 80% of the frame (never less than 70%), with no whole-step limit
-    function bx(lng) { return (lng + 180) / 360 * 256; }
-    function by(lat) { var r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * 256; }
-    var w1 = bx(maxLng) - bx(minLng), h1 = by(minLat) - by(maxLat);
-    var zf = Math.log(Math.min(PIC_W * 0.8 / Math.max(w1, 1e-9), PIC_H * 0.8 / Math.max(h1, 1e-9))) / Math.LN2;
-    zf = Math.max(1, Math.min(20, zf));
-    var S = Math.pow(2, zf);                                   // pixels per map unit
-    var cxw = (bx(minLng) + bx(maxLng)) / 2, cyw = (by(maxLat) + by(minLat)) / 2;
-    var ox = cxw - PIC_W / (2 * S), oy = cyw - PIC_H / (2 * S);
-    var cv = document.createElement('canvas'); cv.width = PIC_W; cv.height = PIC_H;
+    if (bb.maxLat - bb.minLat > 0.5 || bb.maxLng - bb.minLng > 0.5) {
+      return Promise.reject(new Error('These are far apart. Untick Include master land'));
+    }
+    // coordinate panel at the bottom: 4 points per row
+    var lineH = 30, rows = 0;
+    items.forEach(function (it) { rows += 1 + Math.ceil(it.pts.length / 4); });
+    var panelH = Math.min(PH * 0.45, 70 + rows * lineH + 24);
+    var mapH = PH - panelH - 24;
+    var view = pictureView(bb, PW, mapH);
+    var S = view.S, ox = view.ox, oy = view.oy;
+    function XY(p) { return [(bx(p[1]) - ox) * S, (by(p[0]) - oy) * S]; }
+    function path(poly) {
+      g.beginPath();
+      poly.forEach(function (p, i) { var q = XY(p); if (i) g.lineTo(q[0], q[1]); else g.moveTo(q[0], q[1]); });
+      g.closePath();
+    }
+    var cv = document.createElement('canvas'); cv.width = PW; cv.height = PH;
     var g = cv.getContext('2d');
-    g.fillStyle = '#0a140e'; g.fillRect(0, 0, PIC_W, PIC_H);
-    var jobs = [];
-    picFailed = 0;
+    g.fillStyle = '#0a140e'; g.fillRect(0, 0, PW, PH);
+    var jobs = []; picFailed = 0;
     if (withTiles) {
-      // photos come from the highest sharp level (17) and are enlarged beyond it
-      var zt = Math.min(Math.floor(zf), tileMaxNative()), tile = 256 / Math.pow(2, zt), nt = Math.pow(2, zt);
-      var tx0 = Math.floor(ox / tile), tx1 = Math.floor((ox + PIC_W / S) / tile);
-      var ty0 = Math.floor(oy / tile), ty1 = Math.floor((oy + PIC_H / S) / tile);
-      for (var tx = tx0; tx <= tx1; tx++)
-        for (var ty = ty0; ty <= ty1; ty++) {
+      var zt = Math.min(Math.floor(view.zf), tileMaxNative()), tile = 256 / Math.pow(2, zt), nt = Math.pow(2, zt);
+      for (var tx = Math.floor(ox / tile); tx <= Math.floor((ox + PW / S) / tile); tx++)
+        for (var ty = Math.floor(oy / tile); ty <= Math.floor((oy + mapH / S) / tile); ty++) {
           if (ty < 0 || ty >= nt) continue;
           var wx = ((tx % nt) + nt) % nt;
           (function (x, y, url) {
@@ -1375,89 +1493,106 @@ window.herdBoot = function () {
           })((tx * tile - ox) * S, (ty * tile - oy) * S, tileTemplate().replace('{z}', zt).replace('{y}', ty).replace('{x}', wx));
         }
     }
-    function XY(p) { return [(bx(p[1]) - ox) * S, (by(p[0]) - oy) * S]; }
-    function path(poly) {
-      g.beginPath();
-      poly.forEach(function (p, i) { var q = XY(p); if (i) g.lineTo(q[0], q[1]); else g.moveTo(q[0], q[1]); });
-      g.closePath();
-    }
     return Promise.all(jobs).then(function () {
-      // shapes and paddocks
-      if (preview) {
-        preview.forEach(function (q, i) {
-          var col = COLORS[i % COLORS.length];
-          path(q); g.globalAlpha = 0.3; g.fillStyle = col; g.fill(); g.globalAlpha = 1;
+      // shapes
+      items.forEach(function (it) {
+        if (it.kind === 'master') {
+          path(it.pts); g.lineWidth = 7; g.strokeStyle = '#ef4444'; g.stroke();
+        } else if (it.kind === 'paddock') {
+          var col = COLORS[it.i % COLORS.length];
+          path(it.pts); g.globalAlpha = 0.3; g.fillStyle = col; g.fill(); g.globalAlpha = 1;
           g.lineWidth = 6; g.strokeStyle = col; g.stroke();
-          var c = centroid(q), cq = XY(c);
-          var label = names[i] || ('Paddock ' + (i + 1));
-          g.font = '800 38px -apple-system, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-          g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(label, cq[0], cq[1]);
-          g.fillStyle = '#fff'; g.fillText(label, cq[0], cq[1]);
-        });
-      } else {
-        list.forEach(function (sh) {
-          path(sh); g.globalAlpha = 0.22; g.fillStyle = SAGE; g.fill(); g.globalAlpha = 1;
+          var c = centroid(it.pts), cq = XY(c);
+          g.font = '800 34px -apple-system, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+          g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(it.label, cq[0], cq[1]);
+          g.fillStyle = '#fff'; g.fillText(it.label, cq[0], cq[1]);
+        } else {
+          path(it.pts); g.globalAlpha = 0.22; g.fillStyle = SAGE; g.fill(); g.globalAlpha = 1;
           g.lineWidth = 6; g.strokeStyle = SAGE; g.stroke();
-        });
-      }
-      if (includeMaster && master) { path(master.pts); g.lineWidth = 7; g.strokeStyle = '#ef4444'; g.stroke(); }
-      // text panel
-      var ha = 0; list.forEach(function (sh) { ha += hectares(sh); });
-      var title = W.name || '';
+        }
+      });
+      // name, date and size: small rounded box at the top
+      var ha = 0; items.forEach(function (it) { if (it.kind !== 'master') ha += hectares(it.pts); });
       var when = new Date(W.created || Date.now()).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
-      g.fillStyle = 'rgba(10,20,15,.78)'; g.fillRect(40, 40, PIC_W - 80, 230);
-      var y = 130;
+      var boxH = W.name ? 150 : 104;
+      g.fillStyle = 'rgba(10,20,15,.8)'; rr(g, 36, 36, 500, boxH, 26); g.fill();
       g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-      if (title) { g.fillStyle = '#f1f7f3'; g.font = '800 68px -apple-system, sans-serif'; g.fillText(title.slice(0, 26), 80, y); y += 65; }
-      g.fillStyle = '#8fb173'; g.font = '600 40px -apple-system, sans-serif';
-      g.fillText('Set: ' + when, 80, y); y += 50;
-      g.fillStyle = '#cfe0d5';
-      g.fillText((preview ? preview.length + ' paddocks · ' : '') + acresText(ha), 80, y);
-      g.fillStyle = 'rgba(241,247,243,.7)'; g.font = '700 30px -apple-system, sans-serif';
-      g.fillText('HerdGuard', 50, PIC_H - 50);
+      var y = 36 + 50;
+      if (W.name) { g.fillStyle = '#f1f7f3'; g.font = '800 40px -apple-system, sans-serif'; g.fillText(W.name.slice(0, 22), 62, y); y += 42; }
+      g.fillStyle = '#8fb173'; g.font = '600 26px -apple-system, sans-serif'; g.fillText(when, 62, y); y += 34;
+      g.fillStyle = '#cfe0d5'; g.fillText((preview ? preview.length + ' paddocks · ' : '') + acresText(ha), 62, y);
+      // coordinates at the bottom, so the land can be reloaded from the picture alone
+      var top = PH - panelH - 12;
+      g.fillStyle = 'rgba(10,20,15,.8)'; rr(g, 36, top, PW - 72, panelH, 26); g.fill();
+      var ly = top + 46;
+      g.fillStyle = '#8fb173'; g.font = '700 22px -apple-system, sans-serif'; g.textAlign = 'left';
+      g.fillText('Coordinates (lat, lng)', 62, ly); ly += 14;
+      items.forEach(function (it) {
+        ly += 26;
+        g.fillStyle = '#f1f7f3'; g.font = '700 21px -apple-system, sans-serif';
+        g.fillText(it.label, 62, ly); ly += 6;
+        for (var k = 0; k < it.pts.length; k += 4) {
+          ly += lineH;
+          var row = it.pts.slice(k, k + 4).map(function (p) { return p[0].toFixed(5) + ', ' + p[1].toFixed(5); }).join('     ');
+          g.fillStyle = '#cfe0d5'; g.font = '19px monospace';
+          g.fillText(row, 62, ly);
+        }
+      });
       return cv;
     });
   }
-  function showPicture(cv) {
-    var box = $('picBox');
-    box.innerHTML = '';
-    var im = new Image();
-    try { im.src = cv.toDataURL('image/png'); } catch (e) { return false; }
-    box.appendChild(im);
-    return true;
+
+  function showPicture(cv, data) {
+    var box = $('picBox'); box.innerHTML = '';
+    var im = new Image(); im.src = data; box.appendChild(im);
   }
+
+  // Save straight to the phone's gallery; on the web it downloads the file
+  function savePicture(data, fname) {
+    var Cap = window.Capacitor, P = Cap && Cap.Plugins;
+    var native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
+    if (!native || !P || !P.Filesystem) {
+      var a = document.createElement('a'); a.href = data; a.download = fname;
+      document.body.appendChild(a); a.click(); a.remove();
+      return Promise.resolve('downloaded');
+    }
+    return P.Filesystem.writeFile({ path: fname, data: data.split(',')[1], directory: 'CACHE' }).then(function (res) {
+      if (P.Media) {
+        return P.Media.savePhoto({ path: res.uri, fileName: fname }).then(function () { return 'gallery'; }, function () { return share(res.uri); });
+      }
+      return share(res.uri);
+    });
+    function share(uri) { return P.Share.share({ title: 'HerdGuard picture', files: [uri] }).then(function () { return 'shared'; }); }
+  }
+
+  function makePicture(inc) {
+    return buildPicture(inc, true).catch(function (e) {
+      if (e && /far apart|Draw a shape/.test(e.message)) throw e;
+      return buildPicture(inc, false);                     // photos blocked: make it without them
+    });
+  }
+
   $('btn-pic').onclick = function () {
-    $('picBox').innerHTML = ''; $('btn-save-pic').hidden = true;
+    $('picBox').innerHTML = '';
     showSheet('sheetExport');
   };
   $('btn-close5').onclick = closeSheets;
   $('btn-make-pic').onclick = function () {
     var inc = $('expMaster').checked;
     toast('Making picture...');
-    buildPicture(inc, true).then(function (cv) {
-      picCanvas = cv;
-      if (picFailed) toast(picFailed + ' photo tiles did not load. Make it again when online');
-      if (!showPicture(cv)) {                                   // photos blocked: make it without the background
-        return buildPicture(inc, false).then(function (plain) { picCanvas = plain; showPicture(plain); toast('Photos unavailable, picture made without them'); });
-      }
-    }).then(function () {
-      $('btn-save-pic').hidden = !picCanvas;
-    }, function () { toast('Nothing to picture yet'); });
-  };
-  $('btn-save-pic').onclick = function () {
-    if (!picCanvas) return;
-    var data = picCanvas.toDataURL('image/png');
-    var fname = 'herdguard-' + ((W.name || 'land').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'land') + '-' + picRatio.replace(':', 'x') + '.png';
-    var Cap = window.Capacitor, native = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform());
-    if (native && Cap.Plugins.Filesystem && Cap.Plugins.Share) {
-      Cap.Plugins.Filesystem.writeFile({ path: fname, data: data.split(',')[1], directory: 'CACHE' })
-        .then(function (res) { return Cap.Plugins.Share.share({ title: 'HerdGuard picture', files: [res.uri] }); })
-        .catch(function () { toast('Could not save the picture'); });
-    } else {
-      var a = document.createElement('a'); a.href = data; a.download = fname;
-      document.body.appendChild(a); a.click(); a.remove();
-      toast('Picture saved');
-    }
+    makePicture(inc).then(function (cv) {
+      var data;
+      try { data = cv.toDataURL('image/png'); }
+      catch (e) { toast('Could not read the map photos. Try again online'); return; }
+      showPicture(cv, data);
+      var fname = 'herdguard-' + ((W.name || 'land').replace(/[^a-z0-9]+/gi, '-').toLowerCase() || 'land') + '-' + picRatio.replace(':', 'x') + '.png';
+      return savePicture(data, fname).then(function (how) {
+        toast(how === 'gallery' ? 'Saved to your gallery' : how === 'shared' ? 'Choose where to save it' : 'Picture downloaded');
+        if (picFailed) toast(picFailed + ' map photos missing. Download again when online');
+      });
+    }).catch(function (e) {
+      toast((e && e.message) ? e.message : 'Could not save the picture');
+    });
   };
 
   // ---------- Android back button ----------
@@ -1478,7 +1613,7 @@ window.herdBoot = function () {
   else if (master) map.fitBounds(master.pts, { padding: [60, 60], maxZoom: 18 });
   if (restoredFromBackup) toast('Restored from automatic backup');
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
-  // Android download: shown on the website (GitHub Pages, Netlify, ...), hidden inside the Android app
+  // Android download: from apk-config.js; hidden inside the installed app itself
   if (window.hgShowApk && window.hgShowApk()) {
     var apk = $('apkTop');
     apk.href = window.hgApkUrl() || 'get.html';
