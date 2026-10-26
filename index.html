@@ -339,6 +339,7 @@ window.herdBoot = function () {
   var baseLayer = L.tileLayer(tileTemplate(), { maxZoom: 22, maxNativeZoom: tileMaxNative() }).addTo(map);
   var shapes = L.layerGroup().addTo(map);
   var meLayer = L.layerGroup().addTo(map);
+  var walkLayer = L.layerGroup().addTo(map);
 
   // ---------- undo (every change to the map, including deletes) ----------
   var undoStack = [], lastKey = keyOf(W);
@@ -1291,8 +1292,23 @@ window.herdBoot = function () {
   $('btn-close3').onclick = closeSheets;
 
   // ---------- GPS: follow me, and walk-to-draw ----------
+  // when the walk ends, the recorded track is reduced to 13 corners (the corners that change
+  // the shape least are removed first); more corners are kept only if 13 would cross itself
+  function finishWalk() {
+    walkLayer.clearLayers();
+    var track = walkTrack; walkTrack = [];
+    if (track.length < 3) return toast('Walk too short to make a shape');
+    var n = WALK_MAX, pts = simplify(track, n);
+    while (selfCrossing(pts) && n < MAX) { n++; pts = simplify(track, n); }
+    if (selfCrossing(pts)) return toast('Could not make a clean shape from this walk');
+    var r = commitShape(pts);
+    if (r === 'busy') { W.pts = []; r = commitShape(pts); }     // drop a stray 1-2 point shape being drawn
+    if (r === 'ok') toast(pts.length + '-corner shape from your walk. Adjust or save');
+    else toast(explain(r));
+  }
+
   var follow = false, walk = false, watchId = null, lastWalk = null, lastFix = null, warnAt = 0, meMarker = null;
-  var walkPrev = null, walkCount = 0;
+  var walkTrack = [];                       // points recorded every 20 m while walking
 
   function bearingOf(a, b) {
     var dy = b[0] - a[0], dx = (b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180);
@@ -1330,24 +1346,18 @@ window.herdBoot = function () {
         if (Date.now() - warnAt > 8000) { warnAt = Date.now(); toast('GPS weak (' + Math.round(acc) + ' m), waiting'); }
         return;
       }
-      var placed = false;
-      if (!lastWalk) placed = true;                              // first corner: where you start
-      else {
-        var since = metresBetween(lastWalk, ll), turned = false;
-        if (walkPrev && metresBetween(walkPrev, ll) >= 4 && since >= 8) {
-          turned = angleBetween(bearingOf(lastWalk, walkPrev), bearingOf(walkPrev, ll)) >= WALK_TURN;
+      var last = walkTrack.length ? walkTrack[walkTrack.length - 1] : null;
+      if (!last || metresBetween(last, ll) >= WALK_STEP) {
+        var cand = walkTrack.concat([ll]);
+        var others = W.parts.concat(W.pts.length ? [W.pts] : []);
+        if (cand.length >= 3 && others.some(function (o) { return overlaps(cand, o); })) {
+          walk = false; finishWalk(); updateGpsUI();
+          toast('Walk stopped: the walk reached another shape');
+          return;
         }
-        placed = since >= WALK_STEP || turned;                   // far enough, or you just turned a corner
-      }
-      walkPrev = ll;
-      if (placed) {
-        var before = W.pts.length;
-        addPoint(ll[0], ll[1], true);
-        if (W.pts.length > before) { lastWalk = ll; walkCount++; }
-      }
-      if (walkCount >= WALK_MAX) {
-        walk = false; if (!follow) stopWatch(); updateGpsUI();
-        toast(WALK_MAX + ' corners placed. Adjust them or save');
+        walkTrack.push(ll);
+        walkLayer.clearLayers();
+        L.polyline(walkTrack, { color: '#e4eed8', weight: 3, dashArray: '4 6', interactive: false }).addTo(walkLayer);
       }
     }
   }
@@ -1366,12 +1376,12 @@ window.herdBoot = function () {
   $('b-walk').onclick = function () {
     walk = !walk;
     if (walk) {
-      lastWalk = null; walkPrev = null; walkCount = 0; follow = true; walkWarned = false;
+      walkTrack = []; walkLayer.clearLayers(); follow = true;
       closeSheets(); startWatch();
-      toast('Walk: corners are added as you go. Up to ' + WALK_MAX);
+      toast('Walking: a point every ' + WALK_STEP + ' m. Tap Walk again to finish');
     } else {
+      finishWalk();
       if (!follow) stopWatch();
-      toast('Walk stopped');
     }
     updateGpsUI();
   };
